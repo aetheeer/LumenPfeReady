@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Lumen - Carte de France interactive</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-main" role="main">
+    <section class="map-section" aria-label="Carte interactive de la France">
+      <div class="map-wrapper">
+        <div
+          id="map-root"
+          class="map-root"
+          role="img"
+          aria-label="Vue cartographique de la France"
+        ></div>
+
+        <div class="map-search glass-effect" role="search" aria-label="Rechercher une compétence ou une valeur">
+          <input 
+            type="text" 
+            class="map-search-input" 
+            id="map-search-input"
+            placeholder="Rechercher une compétence..."
+            aria-label="Rechercher"
+          />
+        </div>
+
+        <div class="map-view-selector">
+          <div class="view-toggle glass-effect" id="view-toggle">
+            <button type="button" class="view-toggle-button is-active" data-view="skills">
+              Compétences
+            </button>
+            <button type="button" class="view-toggle-button" data-view="values">
+              Valeurs
+            </button>
+          </div>
+        </div>
+
+        <div class="map-view-toggle" role="group" aria-label="Basculer entre vue 2D et isométrique">
+          <button type="button" class="btn-locate glass-effect" id="btn-locate" aria-label="Me localiser">
+            <span class="locate-icon">◎</span>
+          </button>
+          <button type="button" class="btn-view-toggle glass-effect" data-view-type="isometric" aria-label="Basculer vers vue 2D">
+            <span class="view-toggle-icon">⬒</span>
+          </button>
+        </div>
+
+        <div class="map-controls" role="group" aria-label="Contrôles de navigation sur la carte">
+          <button type="button" class="btn-control glass-effect" data-action="zoom-in" aria-label="Zoomer sur la carte">
+            +
+          </button>
+          <button type="button" class="btn-control glass-effect" data-action="zoom-out" aria-label="Dézoomer la carte">
+            −
+          </button>
+          <button type="button" class="btn-control glass-effect" data-action="reset" aria-label="Réinitialiser la vue de la carte">
+            Reset
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Prototype Lumen - Cartographie des compétences & des valeurs en France avec D3.js</p>
+  </footer>
+
+  <script type="module" src="./src/main.js?v=1000"></script>
+</body>
+</html>
