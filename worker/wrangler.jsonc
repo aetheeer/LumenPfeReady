@@ -1,0 +1,11 @@
+{
+  "name": "lumen-france-travail-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-05",
+  "routes": [
+    {
+      "pattern": "TON-DOMAINE-OU-SOUS-DOMAINE.fr/api/*",
+      "zone_name": "TON-DOMAINE.fr"
+    }
+  ]
+}
