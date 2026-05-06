@@ -20,7 +20,15 @@ const SKILL_HINTS = {
   "Développement web": ["javascript", "frontend", "backend", "api", "web"],
   Programmation: ["code", "developpement", "logiciel", "python", "java"],
   "Analyse de données": ["donnees", "reporting", "kpi", "tableau de bord"],
-  "Communication digitale": ["social", "seo", "campagne", "contenu"]
+  "Communication digitale": ["social", "seo", "campagne", "contenu"],
+  "UI Design": ["ui", "interface", "maquette", "figma", "composant"],
+  "UX Design": ["ux", "parcours", "experience utilisateur", "user research", "interview utilisateur"],
+  "Design produit": ["product design", "design produit", "feature", "discovery", "roadmap produit"],
+  "Design system": ["design system", "tokens", "library", "composants"],
+  Wireframing: ["wireframe", "zoning", "arborescence"],
+  Prototypage: ["prototype", "prototypage", "interactive"],
+  "Recherche utilisateur": ["recherche utilisateur", "user research", "entretien", "persona"],
+  "Tests utilisateurs": ["test utilisateur", "usabilite", "a/b test"]
 };
 
 const VALUE_HINTS = {

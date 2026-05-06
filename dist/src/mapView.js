@@ -38,6 +38,34 @@ const LAYERS = {
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
 const SKILL_TAG_COLORS = ["#D24B87", "#3FBAB4", "#762BE2", "#DE82FF", "#1364C3"];
 const VALUE_TAG_COLORS = ["#F2970F", "#EE5FAF", "#2E8AE6", "#52D66A", "#F2C14E"];
+const SIMULATED_OFFERS = [
+  {
+    id: "sim-uxui-kookline-niwanet",
+    intitule: "Alternance - UX/UI Designer (F/H)",
+    entreprise: { nom: "Kookline / Niwanet" },
+    lieuTravail: {
+      libelle: "44980 Sainte-Luce-sur-Loire",
+      latitude: 47.2556,
+      longitude: -1.4849
+    },
+    description:
+      "Alternance UX/UI Designer. Missions: conception d'interfaces web, ateliers UX, wireframes, prototypage, tests utilisateurs, collaboration produit et developpement.",
+    qualitesProfessionnelles: [{ libelle: "Creativite" }, { libelle: "Travail en equipe" }]
+  },
+  {
+    id: "sim-po-chef-projet-digital-beapp",
+    intitule: "PO / Chef-fe de projet digital",
+    entreprise: { nom: "BeApp" },
+    lieuTravail: {
+      libelle: "44200 Nantes",
+      latitude: 47.2019,
+      longitude: -1.5439
+    },
+    description:
+      "Pilotage produit digital, cadrage fonctionnel, priorisation, coordination equipe, suivi roadmap et conception UX en lien avec les parties prenantes.",
+    qualitesProfessionnelles: [{ libelle: "Organisation" }, { libelle: "Gestion de projet" }]
+  }
+];
 const AGGLO_CITY_COORDS = {
   nantes: [-1.553621, 47.218371],
   rezé: [-1.5688, 47.1906],
@@ -502,6 +530,11 @@ async function loadOffers() {
     merged.forEach((offer) => {
       if (!offer?.id || dedup.has(offer.id)) return;
       dedup.set(offer.id, offer);
+    });
+    SIMULATED_OFFERS.forEach((offer) => {
+      if (!dedup.has(offer.id)) {
+        dedup.set(offer.id, offer);
+      }
     });
     const results = [...dedup.values()];
     offersData = results.map(buildOfferFeature).filter(Boolean);
