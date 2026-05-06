@@ -252,7 +252,7 @@ export class Onboarding {
 
   renderTagRows(tags, type) {
     const selectedSet = type === STEP_TYPES.SKILLS ? this.selectedSkills : this.selectedValues;
-    const maxSelections = 8;
+    const maxSelections = 5;
     const shouldDisableForMax = (type === STEP_TYPES.SKILLS || type === STEP_TYPES.VALUES) && selectedSet.size >= maxSelections;
     const rowsCount = 2;
     const rows = Array.from({ length: rowsCount }, () => []);
@@ -342,7 +342,7 @@ export class Onboarding {
     if (stepType === STEP_TYPES.SKILLS) {
       const count = this.selectedSkills.size;
       return {
-        title: `Vos compétences actuelles (${count}/8)`,
+        title: `Vos compétences actuelles (${count}/5)`,
         description: "",
         helper: ""
       };
@@ -351,7 +351,7 @@ export class Onboarding {
     if (stepType === STEP_TYPES.VALUES) {
       const count = this.selectedValues.size;
       return {
-        title: `Ce qui compte pour vous (${count}/8)`,
+        title: `Ce qui compte pour vous (${count}/5)`,
         description: "",
         helper: ""
       };

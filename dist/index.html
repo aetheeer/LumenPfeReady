@@ -18,14 +18,28 @@
           aria-label="Vue cartographique de la France"
         ></div>
 
-        <div class="map-search glass-effect" role="search" aria-label="Rechercher une compétence ou une valeur">
-          <input 
-            type="text" 
-            class="map-search-input" 
-            id="map-search-input"
-            placeholder="Rechercher une compétence..."
-            aria-label="Rechercher"
-          />
+        <div class="map-side-panel glass-effect" id="user-context-panel" aria-label="Informations utilisateur">
+          <button type="button" class="map-side-panel-toggle" id="user-context-toggle" aria-label="Replier le panneau">
+            ⟨
+          </button>
+          <div class="map-side-panel-filter">
+            <span class="map-side-panel-filter-label">Filtrer selon mes tags</span>
+            <button type="button" class="map-filter-toggle" id="user-filter-toggle" aria-pressed="false">
+              OFF
+            </button>
+          </div>
+          <div class="map-side-panel-section">
+            <p class="map-side-panel-title">Compétences</p>
+            <div class="map-side-panel-tags" id="user-skills-list"></div>
+          </div>
+          <div class="map-side-panel-section">
+            <p class="map-side-panel-title">Valeurs</p>
+            <div class="map-side-panel-tags" id="user-values-list"></div>
+          </div>
+          <div class="map-side-panel-section" id="user-deadline-section" hidden>
+            <p class="map-side-panel-title">Délai</p>
+            <div class="map-side-panel-tags" id="user-deadline-list"></div>
+          </div>
         </div>
 
         <div class="map-view-selector">

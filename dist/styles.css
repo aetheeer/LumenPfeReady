@@ -8,6 +8,16 @@
   --radius-lg: 16px;
   --radius-full: 999px;
   --font-main: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  --skill-tag-color-1: #d24b87;
+  --skill-tag-color-2: #3fbab4;
+  --skill-tag-color-3: #762be2;
+  --skill-tag-color-4: #de82ff;
+  --skill-tag-color-5: #1364c3;
+  --value-tag-color-1: #f2970f;
+  --value-tag-color-2: #ee5faf;
+  --value-tag-color-3: #2e8ae6;
+  --value-tag-color-4: #52d66a;
+  --value-tag-color-5: #f2c14e;
 }
 
 /* Classe utilitaire pour l'effet frosted glass */
@@ -124,6 +134,45 @@ body {
   user-select: none;
 }
 
+.lumen-spike-tooltip .lumen-tooltip-top-tag {
+  display: inline-flex;
+  margin-bottom: 0.45rem;
+  cursor: default;
+  font-size: 0.78rem;
+  padding: 0.36rem 0.7rem;
+  border-color: rgba(138, 180, 255, 0.68);
+  background: rgba(138, 180, 255, 0.22);
+}
+
+.lumen-offers-status {
+  position: absolute;
+  left: 1rem;
+  top: 3.9rem;
+  z-index: 90;
+  max-width: min(560px, 75vw);
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(6, 10, 24, 0.78);
+  color: rgba(245, 245, 255, 0.86);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.lumen-offers-status[data-state="loading"] {
+  color: rgba(255, 230, 164, 0.95);
+}
+
+.lumen-offers-status[data-state="error"] {
+  color: rgba(255, 169, 169, 0.96);
+}
+
+.lumen-offers-status[data-state="success"] {
+  color: rgba(205, 237, 255, 0.95);
+}
+
 .iso-container {
   transform-origin: center center;
 }
@@ -200,6 +249,158 @@ body {
 .map-search:focus-within .map-search-icon {
   opacity: 0.8;
 }
+
+.map-side-panel {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  z-index: 110;
+  width: min(220px, 24vw);
+  max-height: calc(100% - 2rem);
+  overflow-y: auto;
+  border-radius: 18px;
+  padding: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  transition: transform 220ms ease, opacity 220ms ease, width 220ms ease;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.map-side-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+}
+
+.map-side-panel-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.3rem 0.1rem 0.45rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 0.1rem;
+}
+
+.map-side-panel-filter-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: rgba(245, 245, 255, 0.78);
+}
+
+.map-filter-toggle {
+  min-width: 52px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 245, 255, 0.92);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+
+.map-filter-toggle[aria-pressed="true"] {
+  background: rgba(138, 180, 255, 0.28);
+  border-color: rgba(138, 180, 255, 0.8);
+  color: rgba(255, 255, 255, 0.98);
+}
+
+.map-side-panel-title {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 255, 0.72);
+  font-weight: 600;
+}
+
+.map-side-panel-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+}
+
+.map-side-panel-tag {
+  width: fit-content;
+  max-width: 100%;
+  justify-content: flex-start;
+  cursor: default;
+  font-size: 0.74rem;
+  padding: 0.32rem 0.56rem;
+  line-height: 1.15;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+
+.map-side-panel-empty {
+  color: rgba(245, 245, 255, 0.52);
+  font-size: 0.78rem;
+}
+
+.map-side-panel-toggle {
+  align-self: flex-end;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  color: rgba(245, 245, 255, 0.9);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+  transition: all 200ms ease;
+}
+
+.map-side-panel-toggle:hover,
+.map-side-panel-toggle:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.map-side-panel.is-collapsed {
+  width: 50px;
+  padding: 0.45rem 0.4rem;
+  overflow: hidden;
+}
+
+.map-side-panel.is-collapsed .map-side-panel-section {
+  display: none;
+}
+
+.map-side-panel.is-collapsed .map-side-panel-filter {
+  display: none;
+}
+
+.map-side-panel.is-collapsed .map-side-panel-toggle {
+  align-self: center;
+}
+
+.map-side-panel-tag.map-skill-color-0 { background: rgba(210, 75, 135, 0.30) !important; border-color: rgba(210, 75, 135, 0.78) !important; color: #fff5fa !important; }
+.map-side-panel-tag.map-skill-color-1 { background: rgba(63, 186, 180, 0.30) !important; border-color: rgba(63, 186, 180, 0.78) !important; color: #efffff !important; }
+.map-side-panel-tag.map-skill-color-2 { background: rgba(118, 43, 226, 0.30) !important; border-color: rgba(118, 43, 226, 0.78) !important; color: #f6f0ff !important; }
+.map-side-panel-tag.map-skill-color-3 { background: rgba(222, 130, 255, 0.30) !important; border-color: rgba(222, 130, 255, 0.78) !important; color: #fff3ff !important; }
+.map-side-panel-tag.map-skill-color-4 { background: rgba(19, 100, 195, 0.30) !important; border-color: rgba(19, 100, 195, 0.78) !important; color: #eff7ff !important; }
+
+.map-side-panel-tag.map-value-color-0 { background: rgba(242, 151, 15, 0.30) !important; border-color: rgba(242, 151, 15, 0.78) !important; color: #fff9ee !important; }
+.map-side-panel-tag.map-value-color-1 { background: rgba(238, 95, 175, 0.30) !important; border-color: rgba(238, 95, 175, 0.78) !important; color: #fff3fb !important; }
+.map-side-panel-tag.map-value-color-2 { background: rgba(46, 138, 230, 0.30) !important; border-color: rgba(46, 138, 230, 0.78) !important; color: #f0f8ff !important; }
+.map-side-panel-tag.map-value-color-3 { background: rgba(82, 214, 106, 0.30) !important; border-color: rgba(82, 214, 106, 0.78) !important; color: #f1fff3 !important; }
+.map-side-panel-tag.map-value-color-4 { background: rgba(242, 193, 78, 0.30) !important; border-color: rgba(242, 193, 78, 0.78) !important; color: #fffced !important; }
 
 .map-view-toggle {
   position: absolute;
