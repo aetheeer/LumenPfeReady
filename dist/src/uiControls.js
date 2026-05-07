@@ -68,6 +68,42 @@ export function initViewToggle(onModeChange) {
   });
 }
 
+export function initOfferViewToggle(onModeChange) {
+  const container = document.querySelector("#offer-view-toggle");
+  if (!container) return;
+
+  const buttons = Array.from(container.querySelectorAll("[data-offer-view]"));
+  if (buttons.length === 0) return;
+
+  let currentMode = "compatibility";
+
+  const activateButton = (mode) => {
+    buttons.forEach((btn) => {
+      if (btn.dataset.offerView === mode) {
+        btn.classList.add("is-active");
+      } else {
+        btn.classList.remove("is-active");
+      }
+    });
+  };
+
+  activateButton(currentMode);
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const mode = button.dataset.offerView;
+      if (!mode || mode === currentMode) return;
+
+      currentMode = mode;
+      activateButton(currentMode);
+
+      if (typeof onModeChange === "function") {
+        onModeChange(currentMode);
+      }
+    });
+  });
+}
+
 export function initViewTypeToggle(onToggle) {
   const toggleBtn = document.querySelector('.btn-view-toggle');
   if (!toggleBtn) {

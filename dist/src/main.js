@@ -7,9 +7,10 @@ import {
   toggleViewMode,
   setSearchQuery,
   setUserContext,
-  setUserFilterActive
+  setUserFilterActive,
+  setOfferViewMode
 } from "./mapView.js?v=1000";
-import { initControls, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1000";
+import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1000";
 import { setViewMode } from './mapView.js?v=1000';
 import { VIEW_MODES } from './config.js?v=1000';
 import { Onboarding } from './onboarding.js?v=1000';
@@ -148,6 +149,10 @@ function initializeApp(onboardingData) {
       // Change mode (this will trigger animated render with all spikes)
       setViewMode(mode);
     }
+  });
+
+  initOfferViewToggle((mode) => {
+    setOfferViewMode(mode);
   });
 
   window.addEventListener("resize", () => {

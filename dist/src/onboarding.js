@@ -393,6 +393,7 @@ export class Onboarding {
     descEl.hidden = !content.description;
     helperEl.hidden = !content.helper;
     contentRoot.classList.toggle("is-text-step", isTextStep);
+    contentRoot.classList.toggle("is-profile-step", step.type === STEP_TYPES.PROFILE);
 
     stageContainer.innerHTML = "";
 

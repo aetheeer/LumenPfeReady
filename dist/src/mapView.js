@@ -14,6 +14,7 @@ let offersData = [];
 let selectedSkills = [];
 let selectedValues = [];
 let filterByUserTags = false;
+let currentOfferViewMode = "compatibility";
 let offersMeta = {
   loading: false,
   loaded: false,
@@ -38,6 +39,9 @@ const LAYERS = {
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
 const SKILL_TAG_COLORS = ["#D24B87", "#3FBAB4", "#762BE2", "#DE82FF", "#1364C3"];
 const VALUE_TAG_COLORS = ["#F2970F", "#EE5FAF", "#2E8AE6", "#52D66A", "#F2C14E"];
+const PIE_ICON_SIZE = 64;
+const DEFAULT_MARKER_ICON_KEY = "offer-marker-8ab4ff";
+const markerIconCache = new Map();
 const SIMULATED_OFFERS = [
   {
     id: "sim-uxui-kookline-niwanet",
@@ -179,6 +183,15 @@ function normalizeQuery(value) {
     .toLowerCase();
 }
 
+function rgbaToHex(rgbaColor) {
+  const match = rgbaColor.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!match) return rgbaColor;
+  const r = Number(match[1]).toString(16).padStart(2, "0");
+  const g = Number(match[2]).toString(16).padStart(2, "0");
+  const b = Number(match[3]).toString(16).padStart(2, "0");
+  return `#${r}${g}${b}`.toUpperCase();
+}
+
 function parseCityKey(value) {
   const normalized = normalizeQuery(value);
   if (!normalized) return "";
@@ -210,17 +223,25 @@ function showTooltip(event, feature) {
   const rect = host.getBoundingClientRect();
   const p = feature.properties;
   const score = currentViewMode === VIEW_MODES.SKILLS ? p.skillScore : p.valueScore;
-  const visibleTag = currentViewMode === VIEW_MODES.SKILLS ? p.dominantSkill : p.dominantValue;
   const compatibility = Math.round(score || 0);
-  const topTag = `${visibleTag || "Tag"} - ${compatibility}%`;
-  const topTagColor = currentViewMode === VIEW_MODES.SKILLS
-    ? getSkillColorByIndex(selectedSkills.indexOf(visibleTag))
-    : getValueColorByIndex(selectedValues.indexOf(visibleTag));
-  const tooltipTagStyle = topTagColor
-    ? `style="background:${topTagColor};border-color:${topTagColor};color:#091127;"`
-    : "";
+  const storedMatchedLabels = Array.isArray(p.matchedTagLabels) ? p.matchedTagLabels.slice(0, 3) : [];
+  const storedMatchedColors = Array.isArray(p.matchedTagColors) ? p.matchedTagColors.slice(0, 3) : [];
+  const computedMatches = currentOfferViewMode === "compatibility" ? getFeatureTagMatches(feature) : [];
+  const computedLabels = computedMatches.map((entry) => entry.label).slice(0, 3);
+  const computedColors = computedMatches.map((entry) => entry.color).slice(0, 3);
+  const matchedTagLabels = storedMatchedLabels.length > 0 ? storedMatchedLabels : computedLabels;
+  const matchedTagColors = storedMatchedColors.length > 0 ? storedMatchedColors : computedColors;
+  const fallbackTag = currentViewMode === VIEW_MODES.SKILLS ? p.dominantSkill : p.dominantValue;
+  const fallbackColor = rgbaToHex(resolveFeatureColor(feature));
+  const chipLabels = matchedTagLabels.length > 0 ? matchedTagLabels : [fallbackTag || "Tag"];
+  const chipColors = matchedTagColors.length > 0 ? matchedTagColors : [fallbackColor];
+  const tagsHtml = chipLabels.map((label, index) => {
+    const tagColor = chipColors[index] || chipColors[0] || "#8AB4FF";
+    const suffix = index === 0 ? ` - ${compatibility}%` : "";
+    return `<span class="onboarding-tag is-active lumen-tooltip-top-tag" style="background:${tagColor};border-color:${tagColor};color:#091127;">${label}${suffix}</span>`;
+  }).join(" ");
   tooltip.innerHTML = `
-    <span class="onboarding-tag is-active lumen-tooltip-top-tag" ${tooltipTagStyle}>${topTag}</span><br>
+    ${tagsHtml}<br>
     <strong>${p.title || "Offre d'emploi"}</strong><br>
     ${p.company || "Entreprise non renseignee"}<br>
     ${p.city || ""}
@@ -285,8 +306,23 @@ function buildOfferFeature(offer) {
   const title = offer?.intitule || offer?.appellationlibelle || "Offre France Travail";
   const company = offer?.entreprise?.nom || "";
   const city = offer?.lieuTravail?.libelle || "";
+  const offerSkillLikeText = Array.isArray(offer?.competences)
+    ? offer.competences.map((item) => item?.libelle || item?.code).filter(Boolean).join(" ")
+    : "";
+  const offerValueLikeText = Array.isArray(offer?.qualitesProfessionnelles)
+    ? offer.qualitesProfessionnelles.map((item) => item?.libelle || item?.description).filter(Boolean).join(" ")
+    : "";
   const searchText = normalizeQuery(
-    [title, company, city, insights.dominantSkill, insights.dominantValue, offer?.description].filter(Boolean).join(" ")
+    [
+      title,
+      company,
+      city,
+      insights.dominantSkill,
+      insights.dominantValue,
+      offer?.description,
+      offerSkillLikeText,
+      offerValueLikeText
+    ].filter(Boolean).join(" ")
   );
   const score = currentViewMode === VIEW_MODES.SKILLS ? insights.dominantSkillScore : insights.dominantValueScore;
 
@@ -387,9 +423,17 @@ function getFilteredFeatures() {
     return searchFiltered;
   }
 
+  const normalizedSkills = selectedSkills.map((tag) => normalizeQuery(tag)).filter(Boolean);
+  const normalizedValues = selectedValues.map((tag) => normalizeQuery(tag)).filter(Boolean);
+  const hasActiveTagFilter = normalizedSkills.length > 0 || normalizedValues.length > 0;
+  if (!hasActiveTagFilter) {
+    return searchFiltered;
+  }
+
   return searchFiltered.filter((feature) => {
-    const matchesSkill = selectedSkills.includes(feature.properties.dominantSkill);
-    const matchesValue = selectedValues.includes(feature.properties.dominantValue);
+    const searchText = feature?.properties?.searchText || "";
+    const matchesSkill = normalizedSkills.some((tag) => searchText.includes(tag));
+    const matchesValue = normalizedValues.some((tag) => searchText.includes(tag));
     return matchesSkill || matchesValue;
   });
 }
@@ -409,17 +453,105 @@ function resolveFeatureColor(feature) {
   return base ? colorWithAlpha(base, 0.78) : getDefaultModeColor();
 }
 
+function getFeatureMatchIndexes(feature) {
+  const text = feature?.properties?.searchText || "";
+  const selected = currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues;
+  return selected
+    .map((tag, index) => ({ index, hit: text.includes(normalizeQuery(tag)) }))
+    .filter((entry) => entry.hit)
+    .slice(0, 3)
+    .map((entry) => entry.index);
+}
+
+function getFeatureTagMatches(feature) {
+  const matchIndexes = getFeatureMatchIndexes(feature);
+  if (matchIndexes.length === 0) return [];
+  const selected = currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues;
+  return matchIndexes.map((index) => {
+    const label = selected[index];
+    const color = currentViewMode === VIEW_MODES.SKILLS
+      ? getSkillColorByIndex(index)
+      : getValueColorByIndex(index);
+    return { label, color };
+  }).filter((entry) => Boolean(entry.label && entry.color));
+}
+
+function getFeatureSliceColorsFromMatches(feature, matches) {
+  if (currentOfferViewMode === "localization") {
+    return feature?.properties?.locationSource === "precise" ? ["#8AB4FF"] : ["#B58EFF"];
+  }
+  if (!Array.isArray(matches) || matches.length === 0) {
+    return [rgbaToHex(resolveFeatureColor(feature))];
+  }
+  return matches.slice(0, 3).map((entry) => entry.color).filter(Boolean);
+}
+
+function buildPieImageData(colors) {
+  const canvas = document.createElement("canvas");
+  canvas.width = PIE_ICON_SIZE;
+  canvas.height = PIE_ICON_SIZE;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+
+  const cx = PIE_ICON_SIZE / 2;
+  const cy = PIE_ICON_SIZE / 2;
+  const radius = PIE_ICON_SIZE / 2 - 3;
+  const slices = Math.max(1, colors.length);
+
+  for (let i = 0; i < slices; i += 1) {
+    const start = (-Math.PI / 2) + (i / slices) * Math.PI * 2;
+    const end = (-Math.PI / 2) + ((i + 1) / slices) * Math.PI * 2;
+    context.beginPath();
+    context.moveTo(cx, cy);
+    context.arc(cx, cy, radius, start, end);
+    context.closePath();
+    context.fillStyle = colors[i] || colors[0];
+    context.fill();
+  }
+
+  context.beginPath();
+  context.arc(cx, cy, radius, 0, Math.PI * 2);
+  context.strokeStyle = "rgba(255, 255, 255, 0.72)";
+  context.lineWidth = 2.25;
+  context.stroke();
+
+  return context.getImageData(0, 0, PIE_ICON_SIZE, PIE_ICON_SIZE);
+}
+
+function ensureMarkerIcon(colors) {
+  const safeColors = (Array.isArray(colors) && colors.length > 0 ? colors : ["#8AB4FF"]).slice(0, 3);
+  const key = `offer-marker-${safeColors.join("-").replace(/[^a-zA-Z0-9-]/g, "").toLowerCase()}`;
+  if (markerIconCache.has(key)) return key;
+  if (!map) return null;
+  if (!map.hasImage(key)) {
+    const imageData = buildPieImageData(safeColors);
+    if (imageData) {
+      map.addImage(key, imageData, { pixelRatio: 2 });
+    }
+  }
+  markerIconCache.set(key, true);
+  return key;
+}
+
 function refreshOffers() {
   if (!map || !map.getSource(SOURCES.offers)) return;
   const filtered = getFilteredFeatures();
   const zoom = map.getZoom();
-  const displayFeatures = buildDisplayFeaturesForZoom(filtered, zoom).map((feature) => ({
-    ...feature,
-    properties: {
-      ...feature.properties,
-      pointColor: resolveFeatureColor(feature)
-    }
-  }));
+  const displayFeatures = buildDisplayFeaturesForZoom(filtered, zoom).map((feature) => {
+    const tagMatches = currentOfferViewMode === "compatibility" ? getFeatureTagMatches(feature) : [];
+    const sliceColors = getFeatureSliceColorsFromMatches(feature, tagMatches);
+    return {
+      ...feature,
+      properties: {
+        ...feature.properties,
+        pointColor: resolveFeatureColor(feature),
+        markerIcon: ensureMarkerIcon(sliceColors),
+        matchedTagLabels: tagMatches.map((entry) => entry.label),
+        matchedTagColors: tagMatches.map((entry) => entry.color),
+        markerSize: Math.max(0.44, Math.min(0.95, (feature.properties.radius || 6) / 12))
+      }
+    };
+  });
   const data = {
     type: "FeatureCollection",
     features: displayFeatures
@@ -476,16 +608,16 @@ function addOfferLayers() {
     data: { type: "FeatureCollection", features: [] }
   });
 
+  ensureMarkerIcon(["#8AB4FF"]);
   map.addLayer({
     id: LAYERS.offersCircle,
-    type: "circle",
+    type: "symbol",
     source: SOURCES.offers,
-    paint: {
-      "circle-radius": ["coalesce", ["get", "radius"], 6],
-      "circle-color": ["coalesce", ["get", "pointColor"], getDefaultModeColor()],
-      "circle-stroke-color": "rgba(255,255,255,0.6)",
-      "circle-stroke-width": 1,
-      "circle-opacity": 0.85
+    layout: {
+      "icon-image": ["coalesce", ["get", "markerIcon"], DEFAULT_MARKER_ICON_KEY],
+      "icon-size": ["coalesce", ["get", "markerSize"], 0.6],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true
     }
   });
 
@@ -704,11 +836,6 @@ export function toggleViewMode() {
 export function setViewMode(mode) {
   currentViewMode = mode;
   if (!map || !map.getLayer(LAYERS.offersCircle)) return;
-  map.setPaintProperty(
-    LAYERS.offersCircle,
-    "circle-color",
-    ["coalesce", ["get", "pointColor"], getDefaultModeColor()]
-  );
   refreshOffers();
 }
 
@@ -735,6 +862,11 @@ export function setUserContext(context = {}) {
 
 export function setUserFilterActive(active) {
   filterByUserTags = Boolean(active);
+  refreshOffers();
+}
+
+export function setOfferViewMode(mode) {
+  currentOfferViewMode = mode === "localization" ? "localization" : "compatibility";
   refreshOffers();
 }
 
