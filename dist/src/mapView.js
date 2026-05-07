@@ -11,6 +11,7 @@ let userMarker = null;
 let localizeButton = null;
 let tooltip = null;
 let offerPopup = null;
+let currentOfferViewMode = "localization";
 let offersData = [];
 let selectedSkills = [];
 let selectedValues = [];
@@ -29,14 +30,21 @@ let offersMeta = {
 const SOURCES = {
   perimeter: "nantes-perimeter-source",
   offers: "lumen-offers-source",
-  labels: "lumen-labels-source"
+  labels: "lumen-labels-source",
+  compatibilityRings: "lumen-compatibility-rings-source",
+  compatibilityCenter: "lumen-compatibility-center-source"
 };
 
 const LAYERS = {
   perimeterFill: "nantes-perimeter-fill",
   perimeterLine: "nantes-perimeter-line",
   offersCircle: "lumen-offers-circle",
-  labels: "lumen-labels"
+  labels: "lumen-labels",
+  compatibilityRingInner: "lumen-compatibility-ring-inner",
+  compatibilityRingMid: "lumen-compatibility-ring-mid",
+  compatibilityRingOuter: "lumen-compatibility-ring-outer",
+  compatibilityCenterDot: "lumen-compatibility-center-dot",
+  compatibilityCenterLabel: "lumen-compatibility-center-label"
 };
 
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
@@ -466,6 +474,50 @@ function buildDisplayFeaturesForZoom(features, zoom) {
   return cloned;
 }
 
+function hashFromString(value) {
+  const text = String(value || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function getCompatibilityBand(ratio) {
+  if (ratio >= 0.9) return "inner";
+  if (ratio >= 0.5) return "middle";
+  return "outer";
+}
+
+function buildCompatibilityFeatures(features) {
+  const center = MAP_CONFIG.nantesCenter;
+  const ringRadiusKm = {
+    inner: 2.4,
+    middle: 4.4,
+    outer: 6.6
+  };
+  return features.map((feature) => {
+    const ratio = getOfferMatchRatio(feature);
+    const band = getCompatibilityBand(ratio);
+    const hash = hashFromString(feature?.properties?.offerId || feature?.properties?.title || "");
+    const angle = hash % 360;
+    const jitter = ((hash % 1000) / 1000 - 0.5) * 0.6;
+    const radius = Math.max(1.4, ringRadiusKm[band] + jitter);
+    const redistributed = destinationPoint(center, radius, angle);
+    return {
+      ...feature,
+      geometry: {
+        ...feature.geometry,
+        coordinates: redistributed
+      },
+      properties: {
+        ...feature.properties,
+        compatibilityBand: band
+      }
+    };
+  });
+}
+
 function setStatusContent(message, type = "info") {
   void message;
   void type;
@@ -591,7 +643,10 @@ function refreshOffers() {
   if (!map || !map.getSource(SOURCES.offers)) return;
   const filtered = getFilteredFeatures();
   const zoom = map.getZoom();
-  const displayFeatures = buildDisplayFeaturesForZoom(filtered, zoom).map((feature) => {
+  const baseFeatures = currentOfferViewMode === "compatibility"
+    ? buildCompatibilityFeatures(filtered)
+    : buildDisplayFeaturesForZoom(filtered, zoom);
+  const displayFeatures = baseFeatures.map((feature) => {
     const tagMatches = getFeatureTagMatches(feature);
     const ratio = getOfferMatchRatio(feature);
     const targetHex = getGradientTargetHexByRatio(ratio);
@@ -612,6 +667,7 @@ function refreshOffers() {
     features: displayFeatures
   };
   map.getSource(SOURCES.offers).setData(data);
+  setCompatibilityGuidesVisibility(currentOfferViewMode === "compatibility");
   updateOffersStatus();
 }
 
@@ -693,6 +749,115 @@ function addContextLabelsLayer() {
       "text-halo-color": "rgba(7, 12, 30, 0.95)",
       "text-halo-width": 1.2,
       "text-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.5, 11, 0.78, 13, 0.92]
+    }
+  });
+}
+
+function addCompatibilityGuideLayers() {
+  const center = MAP_CONFIG.nantesCenter;
+  const rings = [
+    { radius: 2.4, band: "inner" },
+    { radius: 4.4, band: "middle" },
+    { radius: 6.6, band: "outer" }
+  ].map((item) => ({
+    ...buildCircle(center, item.radius),
+    properties: { band: item.band }
+  }));
+
+  map.addSource(SOURCES.compatibilityRings, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: rings }
+  });
+  map.addSource(SOURCES.compatibilityCenter, {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        geometry: { type: "Point", coordinates: center },
+        properties: { label: "Vous" }
+      }]
+    }
+  });
+
+  const ringPaint = (opacity) => ({
+    "line-color": "rgba(157, 198, 255, 0.68)",
+    "line-width": 1.35,
+    "line-opacity": opacity
+  });
+
+  map.addLayer({
+    id: LAYERS.compatibilityRingInner,
+    type: "line",
+    source: SOURCES.compatibilityRings,
+    filter: ["==", ["get", "band"], "inner"],
+    layout: { visibility: "none" },
+    paint: ringPaint(0.85)
+  });
+  map.addLayer({
+    id: LAYERS.compatibilityRingMid,
+    type: "line",
+    source: SOURCES.compatibilityRings,
+    filter: ["==", ["get", "band"], "middle"],
+    layout: { visibility: "none" },
+    paint: ringPaint(0.62)
+  });
+  map.addLayer({
+    id: LAYERS.compatibilityRingOuter,
+    type: "line",
+    source: SOURCES.compatibilityRings,
+    filter: ["==", ["get", "band"], "outer"],
+    layout: { visibility: "none" },
+    paint: ringPaint(0.42)
+  });
+
+  map.addLayer({
+    id: LAYERS.compatibilityCenterDot,
+    type: "circle",
+    source: SOURCES.compatibilityCenter,
+    layout: { visibility: "none" },
+    paint: {
+      "circle-radius": 7,
+      "circle-color": "rgba(126, 181, 255, 0.95)",
+      "circle-stroke-width": 2,
+      "circle-stroke-color": "rgba(255,255,255,0.82)"
+    }
+  });
+  map.addLayer({
+    id: LAYERS.compatibilityCenterLabel,
+    type: "symbol",
+    source: SOURCES.compatibilityCenter,
+    layout: {
+      visibility: "none",
+      "text-field": ["get", "label"],
+      "text-size": 12,
+      "text-offset": [0, 1.4],
+      "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"]
+    },
+    paint: {
+      "text-color": "rgba(228, 239, 255, 0.95)",
+      "text-halo-color": "rgba(7, 12, 30, 0.95)",
+      "text-halo-width": 1.1
+    }
+  });
+}
+
+function setCompatibilityGuidesVisibility(isVisible) {
+  const visibility = isVisible ? "visible" : "none";
+  [LAYERS.compatibilityRingInner, LAYERS.compatibilityRingMid, LAYERS.compatibilityRingOuter, LAYERS.compatibilityCenterDot, LAYERS.compatibilityCenterLabel]
+    .forEach((layerId) => {
+      if (map?.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, "visibility", visibility);
+      }
+    });
+}
+
+function setGeographicLayersVisibility(isVisible) {
+  const visibility = isVisible ? "visible" : "none";
+  const ids = ["osm-base", LAYERS.perimeterFill, LAYERS.perimeterLine, LAYERS.labels];
+  ids.forEach((layerId) => {
+    if (map?.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, "visibility", visibility);
     }
   });
 }
@@ -917,6 +1082,7 @@ export function initMap(container) {
   map.on("load", () => {
     addPerimeterLayers();
     addContextLabelsLayer();
+    addCompatibilityGuideLayers();
     addOfferLayers();
     loadOffers();
     initLocalizeButton();
@@ -1006,6 +1172,30 @@ export function setUserFilterActive(active) {
 }
 
 export function setOfferViewMode(mode) {
-  void mode;
+  currentOfferViewMode = mode === "compatibility" ? "compatibility" : "localization";
+  const wrapper = document.querySelector(".map-wrapper");
+  if (wrapper) {
+    wrapper.classList.toggle("is-compatibility-mode", currentOfferViewMode === "compatibility");
+  }
+  if (map) {
+    if (currentOfferViewMode === "compatibility") {
+      setGeographicLayersVisibility(false);
+      map.easeTo({
+        center: MAP_CONFIG.nantesCenter,
+        zoom: Math.max(map.getZoom(), 11.6),
+        pitch: 0,
+        bearing: 0,
+        duration: 350
+      });
+    } else {
+      setGeographicLayersVisibility(true);
+      map.easeTo({
+        pitch: isIsometricView ? 45 : 0,
+        bearing: isIsometricView ? -15 : 0,
+        duration: 300
+      });
+    }
+  }
+  refreshOffers();
 }
 

@@ -165,6 +165,7 @@ function initializeApp(onboardingData) {
   }
 
   initMap(mapRoot);
+  setOfferViewMode("localization");
   renderUserContextPanel(onboardingData);
 
   const controls = initControls(document);

@@ -19,6 +19,14 @@
         ></div>
 
         <div class="map-side-rail">
+          <div class="view-toggle view-toggle-compact glass-effect" id="view-toggle">
+            <button type="button" class="view-toggle-button is-active" data-view="skills">
+              Compétences
+            </button>
+            <button type="button" class="view-toggle-button" data-view="values">
+              Valeurs
+            </button>
+          </div>
           <div class="map-side-panel glass-effect" id="user-context-panel" aria-label="Informations utilisateur">
             <button type="button" class="map-side-panel-toggle" id="user-context-toggle" aria-label="Replier le panneau">
               ⟨
@@ -36,34 +44,15 @@
               <div class="map-side-panel-tags" id="user-deadline-list"></div>
             </div>
           </div>
-          <div class="map-side-panel-legend glass-effect" aria-label="Légende du niveau de compatibilité">
-            <p class="map-side-panel-legend-title">Niveau de compatibilité</p>
-            <div class="map-side-panel-legend-bar"></div>
-            <div class="map-side-panel-legend-scale">
-              <span>1 tag</span>
-              <span>3 et +</span>
-            </div>
-          </div>
         </div>
-
         <div class="map-view-selector">
-          <div class="map-tabs-hub">
-            <div class="view-toggle view-toggle-compact glass-effect" id="view-toggle">
-              <button type="button" class="view-toggle-button is-active" data-view="skills">
-                Compétences
-              </button>
-              <button type="button" class="view-toggle-button" data-view="values">
-                Valeurs
-              </button>
-            </div>
-            <div class="view-toggle view-toggle-compact glass-effect is-disabled" id="offer-view-toggle" aria-disabled="true">
-              <button type="button" class="view-toggle-button is-active" data-offer-view="localization" disabled>
-                Localisation
-              </button>
-              <button type="button" class="view-toggle-button" data-offer-view="compatibility" disabled>
-                Compatibilité
-              </button>
-            </div>
+          <div class="view-toggle view-toggle-compact glass-effect" id="offer-view-toggle">
+            <button type="button" class="view-toggle-button is-active" data-offer-view="localization">
+              Localisation
+            </button>
+            <button type="button" class="view-toggle-button" data-offer-view="compatibility">
+              Compatibilité
+            </button>
           </div>
         </div>
 
@@ -83,16 +72,20 @@
           <button type="button" class="btn-control glass-effect" data-action="zoom-out" aria-label="Dézoomer la carte">
             −
           </button>
-          <button type="button" class="btn-control glass-effect" data-action="reset" aria-label="Réinitialiser la vue de la carte">
-            Reset
-          </button>
+        </div>
+        <div class="map-bottom-legend glass-effect map-side-panel-legend" aria-label="Légende du niveau de compatibilité">
+          <div class="map-side-panel-legend-bar"></div>
+          <div class="map-side-panel-legend-scale">
+            <span>1 tag</span>
+            <span>3 tags et +</span>
+          </div>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="app-footer">
-    <p>Prototype Lumen - Cartographie des compétences & des valeurs en France avec D3.js</p>
+    <p>Prototype Lumen - Cartographie des compétences & des valeurs en France</p>
   </footer>
 
   <script type="module" src="./src/main.js?v=1000"></script>
