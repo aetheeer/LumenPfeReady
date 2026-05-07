@@ -87,7 +87,7 @@ export class Onboarding {
         this.selectedSkills = new Set(data.skills);
       }
       if (Array.isArray(data?.values)) {
-        this.selectedValues = new Set(data.values);
+        this.selectedValues = new Set(data.values.slice(0, 3));
       }
       if (typeof data?.deadline === "string" || data?.deadline === null) {
         this.selectedDeadline = data.deadline;
@@ -252,7 +252,7 @@ export class Onboarding {
 
   renderTagRows(tags, type) {
     const selectedSet = type === STEP_TYPES.SKILLS ? this.selectedSkills : this.selectedValues;
-    const maxSelections = 5;
+    const maxSelections = type === STEP_TYPES.VALUES ? 3 : 5;
     const shouldDisableForMax = (type === STEP_TYPES.SKILLS || type === STEP_TYPES.VALUES) && selectedSet.size >= maxSelections;
     const rowsCount = 2;
     const rows = Array.from({ length: rowsCount }, () => []);
@@ -351,7 +351,7 @@ export class Onboarding {
     if (stepType === STEP_TYPES.VALUES) {
       const count = this.selectedValues.size;
       return {
-        title: `Ce qui compte pour vous (${count}/5)`,
+        title: `Ce qui compte pour vous (${count}/3)`,
         description: "",
         helper: ""
       };

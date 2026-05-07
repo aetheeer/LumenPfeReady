@@ -10,6 +10,7 @@ let isIsometricView = true;
 let userMarker = null;
 let localizeButton = null;
 let tooltip = null;
+let offerPopup = null;
 let offersData = [];
 let selectedSkills = [];
 let selectedValues = [];
@@ -235,6 +236,15 @@ function ensureTooltip() {
   host.appendChild(tooltip);
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function hideTooltip() {
   if (!tooltip) return;
   tooltip.style.display = "none";
@@ -324,6 +334,28 @@ function parseOfferCoordinates(offer) {
   };
 }
 
+function extractOfferUrl(offer) {
+  const title = (offer?.intitule || offer?.appellationlibelle || "").trim();
+  const city = (offer?.lieuTravail?.libelle || "").trim();
+  const searchTerms = [title, city].filter(Boolean).join(" ");
+  if (searchTerms) {
+    return `https://candidat.francetravail.fr/offres/recherche?motsCles=${encodeURIComponent(searchTerms)}`;
+  }
+  const offerId = typeof offer?.id === "string" ? offer.id.trim() : "";
+  if (offerId) {
+    return `https://candidat.francetravail.fr/offres/recherche?motsCles=${encodeURIComponent(offerId)}`;
+  }
+  const candidates = [
+    offer?.origineOffre?.urlOrigine,
+    offer?.origineOffre?.url,
+    offer?.urlOrigine,
+    offer?.url,
+    offer?.lienPostulation
+  ];
+  const found = candidates.find((value) => typeof value === "string" && /^https?:\/\//i.test(value.trim()));
+  return found ? found.trim() : "";
+}
+
 function buildOfferFeature(offer) {
   const located = parseOfferCoordinates(offer);
   if (!located) return null;
@@ -336,12 +368,14 @@ function buildOfferFeature(offer) {
   const title = offer?.intitule || offer?.appellationlibelle || "Offre France Travail";
   const company = offer?.entreprise?.nom || "";
   const city = offer?.lieuTravail?.libelle || "";
+  const offerUrl = extractOfferUrl(offer);
   const offerSkillLikeText = Array.isArray(offer?.competences)
     ? offer.competences.map((item) => item?.libelle || item?.code).filter(Boolean).join(" ")
     : "";
   const offerValueLikeText = Array.isArray(offer?.qualitesProfessionnelles)
     ? offer.qualitesProfessionnelles.map((item) => item?.libelle || item?.description).filter(Boolean).join(" ")
     : "";
+  const offerDescription = (offer?.description || "").trim();
   const searchText = normalizeQuery(
     [
       title,
@@ -364,6 +398,8 @@ function buildOfferFeature(offer) {
       title,
       company,
       city,
+      offerDescription,
+      offerUrl,
       dominantSkill: insights.dominantSkill,
       dominantValue: insights.dominantValue,
       skillScore: insights.dominantSkillScore,
@@ -700,7 +736,38 @@ function addOfferLayers() {
   });
   map.on("click", LAYERS.offersCircle, (event) => {
     const feature = event.features?.[0];
-    showTooltip(event, feature);
+    if (!feature?.properties) return;
+    const p = feature.properties;
+    const description = escapeHtml((p.offerDescription || "").slice(0, 700));
+    const url = typeof p.offerUrl === "string" && /^https?:\/\//i.test(p.offerUrl) ? p.offerUrl : "";
+    const tags = Array.isArray(p.matchedTagLabels) ? p.matchedTagLabels.slice(0, 3) : [];
+    const tagsHtml = tags.map((tag) =>
+      `<span class="lumen-offer-popup-tag">${escapeHtml(tag)}</span>`
+    ).join("");
+
+    if (offerPopup) {
+      offerPopup.remove();
+      offerPopup = null;
+    }
+
+    offerPopup = new maplibregl.Popup({
+      closeButton: true,
+      closeOnClick: true,
+      maxWidth: "380px",
+      offset: 16,
+      className: "lumen-offer-popup"
+    })
+      .setLngLat(feature.geometry.coordinates)
+      .setHTML(`
+        <div class="lumen-offer-popup-content">
+          <div class="lumen-offer-popup-title">${escapeHtml(p.title || "Offre d'emploi")}</div>
+          <div class="lumen-offer-popup-meta">${escapeHtml(p.company || "Entreprise non renseignée")} · ${escapeHtml(p.city || "")}</div>
+          ${tagsHtml ? `<div class="lumen-offer-popup-tags">${tagsHtml}</div>` : ""}
+          ${description ? `<div class="lumen-offer-popup-desc">${description}</div>` : ""}
+          ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="lumen-offer-popup-link">Voir cette offre</a>` : ""}
+        </div>
+      `)
+      .addTo(map);
   });
 }
 
