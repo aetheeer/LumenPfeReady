@@ -8,7 +8,8 @@ import {
   setSearchQuery,
   setUserContext,
   setUserFilterActive,
-  setOfferViewMode
+  setOfferViewMode,
+  setActiveTagFilters
 } from "./mapView.js?v=1000";
 import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1000";
 import { setViewMode } from './mapView.js?v=1000';
@@ -26,7 +27,7 @@ function parseSessionData() {
   }
 }
 
-function renderTagList(host, tags, emptyText, kind) {
+function renderTagList(host, tags, emptyText, kind, activeFilters, onToggle) {
   if (!host) return;
   host.innerHTML = "";
   if (!Array.isArray(tags) || tags.length === 0) {
@@ -36,12 +37,29 @@ function renderTagList(host, tags, emptyText, kind) {
     host.appendChild(empty);
     return;
   }
-  tags.forEach((tag, index) => {
-    const item = document.createElement("span");
-    const colorClass = kind === "values"
-      ? `map-value-color-${index % 5}`
-      : `map-skill-color-${index % 5}`;
-    item.className = `onboarding-tag is-active map-side-panel-tag ${colorClass}`;
+  tags.forEach((tag) => {
+    if (kind === "deadline") {
+      const item = document.createElement("span");
+      item.className = "onboarding-tag is-active map-side-panel-tag";
+      item.textContent = tag;
+      host.appendChild(item);
+      return;
+    }
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "onboarding-tag map-side-panel-tag";
+    const isActive = kind === "skills"
+      ? activeFilters.skills.has(tag)
+      : activeFilters.values.has(tag);
+    const isValueSelectionLocked = kind === "values" && activeFilters.values.size >= 3 && !isActive;
+    item.classList.add(isActive ? "is-active" : "is-inactive");
+    if (isValueSelectionLocked) {
+      item.classList.add("is-disabled");
+      item.disabled = true;
+      item.setAttribute("aria-disabled", "true");
+    }
+    item.setAttribute("aria-pressed", String(isActive));
+    item.addEventListener("click", () => onToggle(kind, tag));
     item.textContent = tag;
     host.appendChild(item);
   });
@@ -53,16 +71,35 @@ function renderUserContextPanel(onboardingData) {
   const valuesHost = document.getElementById("user-values-list");
   const deadlineSection = document.getElementById("user-deadline-section");
   const deadlineHost = document.getElementById("user-deadline-list");
+  const activeFilters = {
+    skills: new Set(Array.isArray(data?.skills) ? data.skills : []),
+    values: new Set(Array.isArray(data?.values) ? data.values.slice(0, 3) : [])
+  };
 
-  renderTagList(skillsHost, data?.skills || [], "Aucune compétence sélectionnée", "skills");
-  renderTagList(valuesHost, data?.values || [], "Aucune valeur sélectionnée", "values");
+  const applyActiveFilters = () => {
+    setActiveTagFilters({
+      skills: Array.from(activeFilters.skills),
+      values: Array.from(activeFilters.values)
+    });
+  };
+
+  const toggleFilterTag = (kind, tag) => {
+    const bucket = kind === "skills" ? activeFilters.skills : activeFilters.values;
+    if (bucket.has(tag)) bucket.delete(tag);
+    else if (kind !== "values" || bucket.size < 3) bucket.add(tag);
+    renderTagList(skillsHost, data?.skills || [], "Aucune compétence sélectionnée", "skills", activeFilters, toggleFilterTag);
+    renderTagList(valuesHost, data?.values || [], "Aucune valeur sélectionnée", "values", activeFilters, toggleFilterTag);
+    applyActiveFilters();
+  };
+  renderTagList(skillsHost, data?.skills || [], "Aucune compétence sélectionnée", "skills", activeFilters, toggleFilterTag);
+  renderTagList(valuesHost, data?.values || [], "Aucune valeur sélectionnée", "values", activeFilters, toggleFilterTag);
 
   const isUrgent = data?.selectedProfile === "urgent";
   if (deadlineSection) {
     deadlineSection.hidden = !isUrgent;
   }
   if (isUrgent) {
-    renderTagList(deadlineHost, data?.deadline ? [data.deadline] : [], "Aucun délai sélectionné", "values");
+    renderTagList(deadlineHost, data?.deadline ? [data.deadline] : [], "Aucun délai sélectionné", "deadline", activeFilters, toggleFilterTag);
   } else if (deadlineHost) {
     deadlineHost.innerHTML = "";
   }
@@ -74,8 +111,7 @@ function renderUserContextPanel(onboardingData) {
 
   const panel = document.getElementById("user-context-panel");
   const collapseToggle = document.getElementById("user-context-toggle");
-  const filterToggle = document.getElementById("user-filter-toggle");
-  if (!panel || !collapseToggle || !filterToggle || collapseToggle.dataset.bound === "true") return;
+  if (!panel || !collapseToggle || collapseToggle.dataset.bound === "true") return;
 
   collapseToggle.addEventListener("click", () => {
     const isCollapsed = panel.classList.toggle("is-collapsed");
@@ -83,12 +119,8 @@ function renderUserContextPanel(onboardingData) {
     collapseToggle.setAttribute("aria-label", isCollapsed ? "Ouvrir le panneau" : "Replier le panneau");
   });
 
-  filterToggle.addEventListener("click", () => {
-    const active = filterToggle.getAttribute("aria-pressed") !== "true";
-    filterToggle.setAttribute("aria-pressed", String(active));
-    filterToggle.textContent = active ? "ON" : "OFF";
-    setUserFilterActive(active);
-  });
+  setUserFilterActive(true);
+  applyActiveFilters();
 
   collapseToggle.dataset.bound = "true";
 }

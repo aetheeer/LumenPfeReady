@@ -9,16 +9,28 @@ export const MAP_CONFIG = {
     sources: {
       osm: {
         type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tiles: [
+          "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+          "https://b.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+          "https://c.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+          "https://d.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png"
+        ],
         tileSize: 256,
-        attribution: "© OpenStreetMap contributors"
+        attribution: "© OpenStreetMap contributors © CARTO"
       }
     },
     layers: [
       {
         id: "osm-base",
         type: "raster",
-        source: "osm"
+        source: "osm",
+        paint: {
+          "raster-opacity": 0.9,
+          "raster-saturation": -0.7,
+          "raster-contrast": 0.1,
+          "raster-brightness-min": 0.02,
+          "raster-brightness-max": 0.5
+        }
       }
     ]
   }

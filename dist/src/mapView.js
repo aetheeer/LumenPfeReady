@@ -13,8 +13,8 @@ let tooltip = null;
 let offersData = [];
 let selectedSkills = [];
 let selectedValues = [];
-let filterByUserTags = false;
-let currentOfferViewMode = "compatibility";
+let activeSkillFilters = [];
+let activeValueFilters = [];
 let offersMeta = {
   loading: false,
   loaded: false,
@@ -27,20 +27,24 @@ let offersMeta = {
 
 const SOURCES = {
   perimeter: "nantes-perimeter-source",
-  offers: "lumen-offers-source"
+  offers: "lumen-offers-source",
+  labels: "lumen-labels-source"
 };
 
 const LAYERS = {
   perimeterFill: "nantes-perimeter-fill",
   perimeterLine: "nantes-perimeter-line",
-  offersCircle: "lumen-offers-circle"
+  offersCircle: "lumen-offers-circle",
+  labels: "lumen-labels"
 };
 
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
-const SKILL_TAG_COLORS = ["#D24B87", "#3FBAB4", "#762BE2", "#DE82FF", "#1364C3"];
-const VALUE_TAG_COLORS = ["#F2970F", "#EE5FAF", "#2E8AE6", "#52D66A", "#F2C14E"];
-const PIE_ICON_SIZE = 64;
-const DEFAULT_MARKER_ICON_KEY = "offer-marker-8ab4ff";
+const LUMEN_GRADIENT_STOPS = [
+  { t: 0, color: "#7EB5FF" },
+  { t: 0.72, color: "#FFA569" },
+  { t: 1, color: "#FF6969" }
+];
+const MARKER_ICON_SIZE = 72;
 const markerIconCache = new Map();
 const SIMULATED_OFFERS = [
   {
@@ -99,6 +103,16 @@ const AGGLO_CITY_COORDS = {
   "saint-aignan-grandlieu": [-1.6292, 47.1257],
   "saint aignan grandlieu": [-1.6292, 47.1257]
 };
+const CITY_AND_HOTSPOT_LABELS = [
+  { name: "Nantes", kind: "city", coordinates: [-1.5536, 47.2184] },
+  { name: "Rezé", kind: "city", coordinates: [-1.5688, 47.1906] },
+  { name: "Saint-Herblain", kind: "city", coordinates: [-1.6479, 47.2136] },
+  { name: "Île de Nantes", kind: "district", coordinates: [-1.5455, 47.2055] },
+  { name: "Chantenay", kind: "district", coordinates: [-1.5902, 47.2102] },
+  { name: "Dervallières", kind: "district", coordinates: [-1.5878, 47.2297] },
+  { name: "Malakoff", kind: "district", coordinates: [-1.5248, 47.2144] },
+  { name: "Bottière", kind: "district", coordinates: [-1.5093, 47.2309] }
+];
 
 function toRad(value) {
   return (value * Math.PI) / 180;
@@ -183,13 +197,25 @@ function normalizeQuery(value) {
     .toLowerCase();
 }
 
-function rgbaToHex(rgbaColor) {
-  const match = rgbaColor.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-  if (!match) return rgbaColor;
-  const r = Number(match[1]).toString(16).padStart(2, "0");
-  const g = Number(match[2]).toString(16).padStart(2, "0");
-  const b = Number(match[3]).toString(16).padStart(2, "0");
-  return `#${r}${g}${b}`.toUpperCase();
+function hexToRgb(hexColor) {
+  const hex = (hexColor || "").replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16)
+  };
+}
+
+function mixHexColors(colorA, colorB, ratio) {
+  const a = hexToRgb(colorA);
+  const b = hexToRgb(colorB);
+  if (!a || !b) return colorA;
+  const t = Math.max(0, Math.min(1, ratio));
+  const r = Math.round(a.r + (b.r - a.r) * t);
+  const g = Math.round(a.g + (b.g - a.g) * t);
+  const bVal = Math.round(a.b + (b.b - a.b) * t);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${bVal.toString(16).padStart(2, "0")}`.toUpperCase();
 }
 
 function parseCityKey(value) {
@@ -225,18 +251,13 @@ function showTooltip(event, feature) {
   const score = currentViewMode === VIEW_MODES.SKILLS ? p.skillScore : p.valueScore;
   const compatibility = Math.round(score || 0);
   const storedMatchedLabels = Array.isArray(p.matchedTagLabels) ? p.matchedTagLabels.slice(0, 3) : [];
-  const storedMatchedColors = Array.isArray(p.matchedTagColors) ? p.matchedTagColors.slice(0, 3) : [];
-  const computedMatches = currentOfferViewMode === "compatibility" ? getFeatureTagMatches(feature) : [];
+  const computedMatches = getFeatureTagMatches(feature);
   const computedLabels = computedMatches.map((entry) => entry.label).slice(0, 3);
-  const computedColors = computedMatches.map((entry) => entry.color).slice(0, 3);
   const matchedTagLabels = storedMatchedLabels.length > 0 ? storedMatchedLabels : computedLabels;
-  const matchedTagColors = storedMatchedColors.length > 0 ? storedMatchedColors : computedColors;
   const fallbackTag = currentViewMode === VIEW_MODES.SKILLS ? p.dominantSkill : p.dominantValue;
-  const fallbackColor = rgbaToHex(resolveFeatureColor(feature));
   const chipLabels = matchedTagLabels.length > 0 ? matchedTagLabels : [fallbackTag || "Tag"];
-  const chipColors = matchedTagColors.length > 0 ? matchedTagColors : [fallbackColor];
   const tagsHtml = chipLabels.map((label, index) => {
-    const tagColor = chipColors[index] || chipColors[0] || "#8AB4FF";
+    const tagColor = "#7EB5FF";
     const suffix = index === 0 ? ` - ${compatibility}%` : "";
     return `<span class="onboarding-tag is-active lumen-tooltip-top-tag" style="background:${tagColor};border-color:${tagColor};color:#091127;">${label}${suffix}</span>`;
   }).join(" ");
@@ -253,16 +274,6 @@ function showTooltip(event, feature) {
   tooltip.style.top = `${y}px`;
 }
 
-function getSkillColorByIndex(index) {
-  if (index < 0) return null;
-  return SKILL_TAG_COLORS[index % SKILL_TAG_COLORS.length];
-}
-
-function getValueColorByIndex(index) {
-  if (index < 0) return null;
-  return VALUE_TAG_COLORS[index % VALUE_TAG_COLORS.length];
-}
-
 function colorWithAlpha(hexColor, alpha = 1) {
   const hex = (hexColor || "").replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) return hexColor;
@@ -270,6 +281,27 @@ function colorWithAlpha(hexColor, alpha = 1) {
   const g = parseInt(hex.slice(2, 4), 16);
   const b = parseInt(hex.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function getOfferMatchRatio(feature) {
+  const matchedCount = getFeatureTagMatches(feature).length;
+  const matchRatioByCount = {
+    0: 0,
+    1: 0,
+    2: 0.78,
+    3: 1
+  };
+  return matchRatioByCount[Math.min(3, Math.max(0, matchedCount))] ?? 0;
+}
+
+function getGradientTargetHexByRatio(ratio) {
+  const low = LUMEN_GRADIENT_STOPS[0];
+  const mid = LUMEN_GRADIENT_STOPS[1];
+  const high = LUMEN_GRADIENT_STOPS[2];
+  if (ratio <= mid.t) {
+    return mixHexColors(low.color, mid.color, ratio / mid.t);
+  }
+  return mixHexColors(mid.color, high.color, (ratio - mid.t) / (high.t - mid.t));
 }
 
 function parseOfferCoordinates(offer) {
@@ -419,38 +451,30 @@ function getFilteredFeatures() {
     ? offersData.filter((feature) => feature.properties.searchText.includes(query))
     : offersData;
 
-  if (!filterByUserTags) {
-    return searchFiltered;
-  }
+  const normalizedActiveSkillFilters = activeSkillFilters.map((tag) => normalizeQuery(tag)).filter(Boolean);
+  const normalizedActiveValueFilters = activeValueFilters.map((tag) => normalizeQuery(tag)).filter(Boolean);
+  const explicitFilters = [...normalizedActiveSkillFilters, ...normalizedActiveValueFilters];
+  const primaryTags = (currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues)
+    .map((tag) => normalizeQuery(tag))
+    .filter(Boolean);
+  const fallbackTags = (currentViewMode === VIEW_MODES.SKILLS ? selectedValues : selectedSkills)
+    .map((tag) => normalizeQuery(tag))
+    .filter(Boolean);
+  const tagsToMatch = explicitFilters.length > 0 ? explicitFilters : (primaryTags.length > 0 ? primaryTags : fallbackTags);
 
-  const normalizedSkills = selectedSkills.map((tag) => normalizeQuery(tag)).filter(Boolean);
-  const normalizedValues = selectedValues.map((tag) => normalizeQuery(tag)).filter(Boolean);
-  const hasActiveTagFilter = normalizedSkills.length > 0 || normalizedValues.length > 0;
-  if (!hasActiveTagFilter) {
+  if (tagsToMatch.length === 0) {
     return searchFiltered;
   }
 
   return searchFiltered.filter((feature) => {
     const searchText = feature?.properties?.searchText || "";
-    const matchesSkill = normalizedSkills.some((tag) => searchText.includes(tag));
-    const matchesValue = normalizedValues.some((tag) => searchText.includes(tag));
-    return matchesSkill || matchesValue;
+    return tagsToMatch.some((tag) => searchText.includes(tag));
   });
 }
 
-function getDefaultModeColor() {
-  return currentViewMode === VIEW_MODES.SKILLS ? "rgba(255, 200, 50, 0.88)" : "rgba(138, 180, 255, 0.88)";
-}
-
 function resolveFeatureColor(feature) {
-  if (currentViewMode === VIEW_MODES.SKILLS) {
-    const idx = selectedSkills.indexOf(feature.properties.dominantSkill);
-    const base = getSkillColorByIndex(idx);
-    return base ? colorWithAlpha(base, 0.78) : getDefaultModeColor();
-  }
-  const idx = selectedValues.indexOf(feature.properties.dominantValue);
-  const base = getValueColorByIndex(idx);
-  return base ? colorWithAlpha(base, 0.78) : getDefaultModeColor();
+  const ratio = getOfferMatchRatio(feature);
+  return colorWithAlpha(getGradientTargetHexByRatio(ratio), 0.9);
 }
 
 function getFeatureMatchIndexes(feature) {
@@ -464,67 +488,57 @@ function getFeatureMatchIndexes(feature) {
 }
 
 function getFeatureTagMatches(feature) {
+  const selected = currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues;
   const matchIndexes = getFeatureMatchIndexes(feature);
   if (matchIndexes.length === 0) return [];
-  const selected = currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues;
-  return matchIndexes.map((index) => {
-    const label = selected[index];
-    const color = currentViewMode === VIEW_MODES.SKILLS
-      ? getSkillColorByIndex(index)
-      : getValueColorByIndex(index);
-    return { label, color };
-  }).filter((entry) => Boolean(entry.label && entry.color));
+  return matchIndexes.map((index) => ({ label: selected[index] })).filter((entry) => Boolean(entry.label));
 }
 
-function getFeatureSliceColorsFromMatches(feature, matches) {
-  if (currentOfferViewMode === "localization") {
-    return feature?.properties?.locationSource === "precise" ? ["#8AB4FF"] : ["#B58EFF"];
-  }
-  if (!Array.isArray(matches) || matches.length === 0) {
-    return [rgbaToHex(resolveFeatureColor(feature))];
-  }
-  return matches.slice(0, 3).map((entry) => entry.color).filter(Boolean);
-}
-
-function buildPieImageData(colors) {
+function buildGradientMarkerImage(targetColor) {
   const canvas = document.createElement("canvas");
-  canvas.width = PIE_ICON_SIZE;
-  canvas.height = PIE_ICON_SIZE;
+  canvas.width = MARKER_ICON_SIZE;
+  canvas.height = MARKER_ICON_SIZE;
   const context = canvas.getContext("2d");
   if (!context) return null;
 
-  const cx = PIE_ICON_SIZE / 2;
-  const cy = PIE_ICON_SIZE / 2;
-  const radius = PIE_ICON_SIZE / 2 - 3;
-  const slices = Math.max(1, colors.length);
-
-  for (let i = 0; i < slices; i += 1) {
-    const start = (-Math.PI / 2) + (i / slices) * Math.PI * 2;
-    const end = (-Math.PI / 2) + ((i + 1) / slices) * Math.PI * 2;
-    context.beginPath();
-    context.moveTo(cx, cy);
-    context.arc(cx, cy, radius, start, end);
-    context.closePath();
-    context.fillStyle = colors[i] || colors[0];
-    context.fill();
-  }
+  const center = MARKER_ICON_SIZE / 2;
+  const radius = MARKER_ICON_SIZE / 2 - 4;
+  const gradient = context.createLinearGradient(0, MARKER_ICON_SIZE, MARKER_ICON_SIZE, 0);
+  const isBaseBlueOnly = String(targetColor).toUpperCase() === "#7EB5FF";
+  gradient.addColorStop(0, "#7EB5FF");
+  gradient.addColorStop(0.42, isBaseBlueOnly ? "#7EB5FF" : mixHexColors("#7EB5FF", targetColor, 0.58));
+  gradient.addColorStop(1, isBaseBlueOnly ? "#7EB5FF" : targetColor);
 
   context.beginPath();
-  context.arc(cx, cy, radius, 0, Math.PI * 2);
-  context.strokeStyle = "rgba(255, 255, 255, 0.72)";
-  context.lineWidth = 2.25;
+  context.arc(center, center, radius + 0.5, 0, Math.PI * 2);
+  context.closePath();
+  context.fillStyle = "rgba(126, 181, 255, 0.24)";
+  context.fill();
+
+  context.beginPath();
+  context.arc(center, center, radius, 0, Math.PI * 2);
+  context.closePath();
+  context.shadowColor = "rgba(126, 181, 255, 0.62)";
+  context.shadowBlur = 10;
+  context.fillStyle = gradient;
+  context.fill();
+  context.shadowBlur = 0;
+
+  context.beginPath();
+  context.arc(center, center, radius, 0, Math.PI * 2);
+  context.strokeStyle = "rgba(255,255,255,0.88)";
+  context.lineWidth = 2.6;
   context.stroke();
 
-  return context.getImageData(0, 0, PIE_ICON_SIZE, PIE_ICON_SIZE);
+  return context.getImageData(0, 0, MARKER_ICON_SIZE, MARKER_ICON_SIZE);
 }
 
-function ensureMarkerIcon(colors) {
-  const safeColors = (Array.isArray(colors) && colors.length > 0 ? colors : ["#8AB4FF"]).slice(0, 3);
-  const key = `offer-marker-${safeColors.join("-").replace(/[^a-zA-Z0-9-]/g, "").toLowerCase()}`;
+function ensureGradientMarkerIcon(targetColor) {
+  const key = `offer-gradient-${String(targetColor).replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`;
   if (markerIconCache.has(key)) return key;
   if (!map) return null;
   if (!map.hasImage(key)) {
-    const imageData = buildPieImageData(safeColors);
+    const imageData = buildGradientMarkerImage(targetColor);
     if (imageData) {
       map.addImage(key, imageData, { pixelRatio: 2 });
     }
@@ -538,17 +552,18 @@ function refreshOffers() {
   const filtered = getFilteredFeatures();
   const zoom = map.getZoom();
   const displayFeatures = buildDisplayFeaturesForZoom(filtered, zoom).map((feature) => {
-    const tagMatches = currentOfferViewMode === "compatibility" ? getFeatureTagMatches(feature) : [];
-    const sliceColors = getFeatureSliceColorsFromMatches(feature, tagMatches);
+    const tagMatches = getFeatureTagMatches(feature);
+    const ratio = getOfferMatchRatio(feature);
+    const targetHex = getGradientTargetHexByRatio(ratio);
+    const markerSize = 0.78 + ratio * 0.34;
     return {
       ...feature,
       properties: {
         ...feature.properties,
         pointColor: resolveFeatureColor(feature),
-        markerIcon: ensureMarkerIcon(sliceColors),
         matchedTagLabels: tagMatches.map((entry) => entry.label),
-        matchedTagColors: tagMatches.map((entry) => entry.color),
-        markerSize: Math.max(0.44, Math.min(0.95, (feature.properties.radius || 6) / 12))
+        markerIcon: ensureGradientMarkerIcon(targetHex),
+        markerSize
       }
     };
   });
@@ -586,7 +601,7 @@ function addPerimeterLayers() {
     source: SOURCES.perimeter,
     paint: {
       "fill-color": "#4c6fff",
-      "fill-opacity": 0.06
+      "fill-opacity": 0.035
     }
   });
 
@@ -602,20 +617,67 @@ function addPerimeterLayers() {
   });
 }
 
+function addContextLabelsLayer() {
+  const features = CITY_AND_HOTSPOT_LABELS.map((entry) => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: entry.coordinates },
+    properties: {
+      name: entry.name,
+      kind: entry.kind
+    }
+  }));
+
+  map.addSource(SOURCES.labels, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features }
+  });
+
+  map.addLayer({
+    id: LAYERS.labels,
+    type: "symbol",
+    source: SOURCES.labels,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 11.5, 12, 13.5, 14],
+      "text-allow-overlap": false
+    },
+    paint: {
+      "text-color": [
+        "match",
+        ["get", "kind"],
+        "city",
+        "rgba(196, 220, 255, 0.92)",
+        "rgba(169, 198, 242, 0.72)"
+      ],
+      "text-halo-color": "rgba(7, 12, 30, 0.95)",
+      "text-halo-width": 1.2,
+      "text-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.5, 11, 0.78, 13, 0.92]
+    }
+  });
+}
+
 function addOfferLayers() {
   map.addSource(SOURCES.offers, {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] }
   });
 
-  ensureMarkerIcon(["#8AB4FF"]);
+  if (!map.hasImage("offer-gradient-fallback")) {
+    const fallbackImage = buildGradientMarkerImage("#7EB5FF");
+    if (fallbackImage) {
+      map.addImage("offer-gradient-fallback", fallbackImage, { pixelRatio: 2 });
+      markerIconCache.set("offer-gradient-fallback", true);
+    }
+  }
+
   map.addLayer({
     id: LAYERS.offersCircle,
     type: "symbol",
     source: SOURCES.offers,
     layout: {
-      "icon-image": ["coalesce", ["get", "markerIcon"], DEFAULT_MARKER_ICON_KEY],
-      "icon-size": ["coalesce", ["get", "markerSize"], 0.6],
+      "icon-image": ["coalesce", ["get", "markerIcon"], "offer-gradient-fallback"],
+      "icon-size": ["coalesce", ["get", "markerSize"], 0.88],
       "icon-allow-overlap": true,
       "icon-ignore-placement": true
     }
@@ -783,6 +845,7 @@ export function initMap(container) {
 
   map.on("load", () => {
     addPerimeterLayers();
+    addContextLabelsLayer();
     addOfferLayers();
     loadOffers();
     initLocalizeButton();
@@ -860,13 +923,18 @@ export function setUserContext(context = {}) {
   refreshOffers();
 }
 
+export function setActiveTagFilters(filters = {}) {
+  activeSkillFilters = Array.isArray(filters.skills) ? filters.skills : [];
+  activeValueFilters = Array.isArray(filters.values) ? filters.values : [];
+  refreshOffers();
+}
+
 export function setUserFilterActive(active) {
-  filterByUserTags = Boolean(active);
+  void active;
   refreshOffers();
 }
 
 export function setOfferViewMode(mode) {
-  currentOfferViewMode = mode === "localization" ? "localization" : "compatibility";
-  refreshOffers();
+  void mode;
 }
 
