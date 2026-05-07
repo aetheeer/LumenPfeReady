@@ -1,11 +1,12 @@
 export const MAP_CONFIG = {
-  minZoom: 9,
+  minZoom: 7.8,
   maxZoom: 17.5,
-  initialZoom: 11.4,
+  initialZoom: 8.8,
   nantesCenter: [-1.553621, 47.218371],
-  hardLimitRadiusKm: 25,
+  hardLimitRadiusKm: 170,
   mapStyle: {
     version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
     sources: {
       osm: {
         type: "raster",

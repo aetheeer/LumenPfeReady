@@ -8,6 +8,7 @@ let currentViewMode = VIEW_MODES.SKILLS;
 let searchQuery = "";
 let isIsometricView = true;
 let userMarker = null;
+let compatibilityCenterMarker = null;
 let localizeButton = null;
 let tooltip = null;
 let offerPopup = null;
@@ -113,13 +114,18 @@ const AGGLO_CITY_COORDS = {
 };
 const CITY_AND_HOTSPOT_LABELS = [
   { name: "Nantes", kind: "city", coordinates: [-1.5536, 47.2184] },
+  { name: "Rennes", kind: "city", coordinates: [-1.6778, 48.1173] },
+  { name: "Le Mans", kind: "city", coordinates: [0.1996, 48.0061] },
+  { name: "Cholet", kind: "city", coordinates: [-0.8787, 47.0594] },
+  { name: "Angers", kind: "city", coordinates: [-0.5632, 47.4784] },
+  { name: "Laval", kind: "city", coordinates: [-0.7718, 48.0700] },
+  { name: "La Roche-sur-Yon", kind: "city", coordinates: [-1.4260, 46.6705] },
+  { name: "Saint-Nazaire", kind: "city", coordinates: [-2.2137, 47.2735] },
+  { name: "Pornic", kind: "city", coordinates: [-2.1032, 47.1120] },
+  { name: "Challans", kind: "city", coordinates: [-1.8783, 46.8440] },
+  { name: "Saumur", kind: "city", coordinates: [-0.0781, 47.2596] },
   { name: "Rezé", kind: "city", coordinates: [-1.5688, 47.1906] },
-  { name: "Saint-Herblain", kind: "city", coordinates: [-1.6479, 47.2136] },
-  { name: "Île de Nantes", kind: "district", coordinates: [-1.5455, 47.2055] },
-  { name: "Chantenay", kind: "district", coordinates: [-1.5902, 47.2102] },
-  { name: "Dervallières", kind: "district", coordinates: [-1.5878, 47.2297] },
-  { name: "Malakoff", kind: "district", coordinates: [-1.5248, 47.2144] },
-  { name: "Bottière", kind: "district", coordinates: [-1.5093, 47.2309] }
+  { name: "Saint-Herblain", kind: "city", coordinates: [-1.6479, 47.2136] }
 ];
 
 function toRad(value) {
@@ -430,12 +436,15 @@ function spreadRadiusKmByZoom(feature, zoom, ring, groupSize = 1) {
   const isFallback = feature?.properties?.locationSource === "fallback";
   const lat = feature?.properties?.baseLat || MAP_CONFIG.nantesCenter[1];
   const mpp = metersPerPixel(lat, zoom);
-  const basePx = isFallback ? 36 : 26;
-  const ringStepPx = isFallback ? 18 : 13;
-  const zoomFactor = Math.max(0.85, Math.min(2.35, (13 - zoom) * 0.25 + 1));
+  const basePx = isFallback ? 16 : 12;
+  const ringStepPx = isFallback ? 8 : 6;
+  const zoomFactor = Math.max(0.75, Math.min(1.2, (12 - zoom) * 0.08 + 1));
   const densityFactor = 1 + Math.min(0.95, Math.max(0, groupSize - 2) * 0.06);
   const pixels = (basePx + ring * ringStepPx) * zoomFactor * densityFactor;
-  return (pixels * mpp) / 1000;
+  const rawRadiusKm = (pixels * mpp) / 1000;
+  // Keep centroid spreading visually tight at regional zoom levels.
+  const maxRadiusKm = zoom <= 8 ? 2.2 : zoom <= 9.5 ? 1.6 : zoom <= 11 ? 1.05 : 0.62;
+  return Math.min(rawRadiusKm, maxRadiusKm);
 }
 
 function buildDisplayFeaturesForZoom(features, zoom) {
@@ -537,16 +546,13 @@ function getFilteredFeatures() {
     ? offersData.filter((feature) => feature.properties.searchText.includes(query))
     : offersData;
 
-  const normalizedActiveSkillFilters = activeSkillFilters.map((tag) => normalizeQuery(tag)).filter(Boolean);
-  const normalizedActiveValueFilters = activeValueFilters.map((tag) => normalizeQuery(tag)).filter(Boolean);
-  const explicitFilters = [...normalizedActiveSkillFilters, ...normalizedActiveValueFilters];
+  const normalizedActiveModeFilters = (currentViewMode === VIEW_MODES.SKILLS ? activeSkillFilters : activeValueFilters)
+    .map((tag) => normalizeQuery(tag))
+    .filter(Boolean);
   const primaryTags = (currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues)
     .map((tag) => normalizeQuery(tag))
     .filter(Boolean);
-  const fallbackTags = (currentViewMode === VIEW_MODES.SKILLS ? selectedValues : selectedSkills)
-    .map((tag) => normalizeQuery(tag))
-    .filter(Boolean);
-  const tagsToMatch = explicitFilters.length > 0 ? explicitFilters : (primaryTags.length > 0 ? primaryTags : fallbackTags);
+  const tagsToMatch = normalizedActiveModeFilters.length > 0 ? normalizedActiveModeFilters : primaryTags;
 
   if (tagsToMatch.length === 0) {
     return searchFiltered;
@@ -650,7 +656,7 @@ function refreshOffers() {
     const tagMatches = getFeatureTagMatches(feature);
     const ratio = getOfferMatchRatio(feature);
     const targetHex = getGradientTargetHexByRatio(ratio);
-    const markerSize = 0.78 + ratio * 0.34;
+    const markerSize = 0.68 + ratio * 0.22;
     return {
       ...feature,
       properties: {
@@ -734,9 +740,10 @@ function addContextLabelsLayer() {
     source: SOURCES.labels,
     layout: {
       "text-field": ["get", "name"],
-      "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-      "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 11.5, 12, 13.5, 14],
-      "text-allow-overlap": false
+      "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 7.8, 11, 10, 12, 12.5, 14],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true
     },
     paint: {
       "text-color": [
@@ -744,11 +751,11 @@ function addContextLabelsLayer() {
         ["get", "kind"],
         "city",
         "rgba(196, 220, 255, 0.92)",
-        "rgba(169, 198, 242, 0.72)"
+        "rgba(169, 198, 242, 0.78)"
       ],
       "text-halo-color": "rgba(7, 12, 30, 0.95)",
       "text-halo-width": 1.2,
-      "text-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.5, 11, 0.78, 13, 0.92]
+      "text-opacity": ["interpolate", ["linear"], ["zoom"], 7.8, 0.62, 9.5, 0.72, 11.5, 0.82, 14, 0.9]
     }
   });
 }
@@ -817,9 +824,9 @@ function addCompatibilityGuideLayers() {
     source: SOURCES.compatibilityCenter,
     layout: { visibility: "none" },
     paint: {
-      "circle-radius": 7,
+      "circle-radius": 9,
       "circle-color": "rgba(126, 181, 255, 0.95)",
-      "circle-stroke-width": 2,
+      "circle-stroke-width": 2.4,
       "circle-stroke-color": "rgba(255,255,255,0.82)"
     }
   });
@@ -850,6 +857,35 @@ function setCompatibilityGuidesVisibility(isVisible) {
         map.setLayoutProperty(layerId, "visibility", visibility);
       }
     });
+  if (isVisible && map?.getLayer(LAYERS.offersCircle)) {
+    if (map.getLayer(LAYERS.compatibilityCenterDot)) map.moveLayer(LAYERS.compatibilityCenterDot);
+    if (map.getLayer(LAYERS.compatibilityCenterLabel)) map.moveLayer(LAYERS.compatibilityCenterLabel);
+  }
+  ensureCompatibilityCenterMarker();
+  if (compatibilityCenterMarker?.getElement()) {
+    compatibilityCenterMarker.getElement().style.display = isVisible ? "block" : "none";
+  }
+}
+
+function ensureCompatibilityCenterMarker() {
+  if (!map || compatibilityCenterMarker) return;
+  const markerEl = document.createElement("div");
+  markerEl.className = "lumen-compatibility-center-marker";
+  markerEl.style.width = "14px";
+  markerEl.style.height = "14px";
+  markerEl.style.borderRadius = "999px";
+  markerEl.style.background = "rgba(126, 181, 255, 0.97)";
+  markerEl.style.border = "2px solid rgba(255,255,255,0.88)";
+  markerEl.style.boxShadow = "0 0 0 2px rgba(8, 12, 30, 0.55)";
+  markerEl.style.pointerEvents = "none";
+
+  compatibilityCenterMarker = new maplibregl.Marker({
+    element: markerEl,
+    anchor: "center"
+  })
+    .setLngLat(MAP_CONFIG.nantesCenter)
+    .addTo(map);
+  compatibilityCenterMarker.getElement().style.display = "none";
 }
 
 function setGeographicLayersVisibility(isVisible) {
@@ -882,7 +918,7 @@ function addOfferLayers() {
     source: SOURCES.offers,
     layout: {
       "icon-image": ["coalesce", ["get", "markerIcon"], "offer-gradient-fallback"],
-      "icon-size": ["coalesce", ["get", "markerSize"], 0.88],
+      "icon-size": ["coalesce", ["get", "markerSize"], 0.78],
       "icon-allow-overlap": true,
       "icon-ignore-placement": true
     }
