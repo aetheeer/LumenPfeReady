@@ -75,7 +75,7 @@ export function initOfferViewToggle(onModeChange) {
   const buttons = Array.from(container.querySelectorAll("[data-offer-view]"));
   if (buttons.length === 0) return;
 
-  let currentMode = "compatibility";
+  let currentMode = "localization";
 
   const activateButton = (mode) => {
     buttons.forEach((btn) => {
