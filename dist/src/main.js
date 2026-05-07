@@ -27,6 +27,12 @@ function parseSessionData() {
   }
 }
 
+function updateCompatibilityLegend(mode) {
+  const legend = document.querySelector(".map-side-panel-legend");
+  if (!legend) return;
+  legend.classList.toggle("is-values-mode", mode === VIEW_MODES.VALUES);
+}
+
 function renderTagList(host, tags, emptyText, kind, activeFilters, onToggle) {
   if (!host) return;
   host.innerHTML = "";
@@ -48,6 +54,9 @@ function renderTagList(host, tags, emptyText, kind, activeFilters, onToggle) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "onboarding-tag map-side-panel-tag";
+    if (kind === "values") {
+      item.classList.add("map-side-panel-tag-values");
+    }
     const isActive = kind === "skills"
       ? activeFilters.skills.has(tag)
       : activeFilters.values.has(tag);
@@ -180,8 +189,10 @@ function initializeApp(onboardingData) {
       setSearchQuery('', true);
       // Change mode (this will trigger animated render with all spikes)
       setViewMode(mode);
+      updateCompatibilityLegend(mode);
     }
   });
+  updateCompatibilityLegend(VIEW_MODES.SKILLS);
 
   initOfferViewToggle((mode) => {
     setOfferViewMode(mode);

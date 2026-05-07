@@ -39,11 +39,10 @@ const LAYERS = {
 };
 
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
-const LUMEN_GRADIENT_STOPS = [
-  { t: 0, color: "#7EB5FF" },
-  { t: 0.72, color: "#FFA569" },
-  { t: 1, color: "#FF6969" }
-];
+const SKILL_BASE_COLOR = "#7EB5FF";
+const VALUE_BASE_COLOR = "#F2C14E";
+const MID_COMPAT_COLOR = "#FFA569";
+const HIGH_COMPAT_COLOR = "#FF6969";
 const MARKER_ICON_SIZE = 72;
 const markerIconCache = new Map();
 const SIMULATED_OFFERS = [
@@ -295,13 +294,12 @@ function getOfferMatchRatio(feature) {
 }
 
 function getGradientTargetHexByRatio(ratio) {
-  const low = LUMEN_GRADIENT_STOPS[0];
-  const mid = LUMEN_GRADIENT_STOPS[1];
-  const high = LUMEN_GRADIENT_STOPS[2];
-  if (ratio <= mid.t) {
-    return mixHexColors(low.color, mid.color, ratio / mid.t);
+  const base = currentViewMode === VIEW_MODES.VALUES ? VALUE_BASE_COLOR : SKILL_BASE_COLOR;
+  const midStop = 0.72;
+  if (ratio <= midStop) {
+    return mixHexColors(base, MID_COMPAT_COLOR, ratio / midStop);
   }
-  return mixHexColors(mid.color, high.color, (ratio - mid.t) / (high.t - mid.t));
+  return mixHexColors(MID_COMPAT_COLOR, HIGH_COMPAT_COLOR, (ratio - midStop) / (1 - midStop));
 }
 
 function parseOfferCoordinates(offer) {
@@ -503,38 +501,44 @@ function buildGradientMarkerImage(targetColor) {
 
   const center = MARKER_ICON_SIZE / 2;
   const radius = MARKER_ICON_SIZE / 2 - 4;
+  const baseColor = currentViewMode === VIEW_MODES.VALUES ? VALUE_BASE_COLOR : SKILL_BASE_COLOR;
   const gradient = context.createLinearGradient(0, MARKER_ICON_SIZE, MARKER_ICON_SIZE, 0);
-  const isBaseBlueOnly = String(targetColor).toUpperCase() === "#7EB5FF";
-  gradient.addColorStop(0, "#7EB5FF");
-  gradient.addColorStop(0.42, isBaseBlueOnly ? "#7EB5FF" : mixHexColors("#7EB5FF", targetColor, 0.58));
-  gradient.addColorStop(1, isBaseBlueOnly ? "#7EB5FF" : targetColor);
+  const isBaseOnly = String(targetColor).toUpperCase() === String(baseColor).toUpperCase();
+  gradient.addColorStop(0, baseColor);
+  gradient.addColorStop(0.42, isBaseOnly ? baseColor : mixHexColors(baseColor, targetColor, 0.58));
+  gradient.addColorStop(1, isBaseOnly ? baseColor : targetColor);
 
   context.beginPath();
   context.arc(center, center, radius + 0.5, 0, Math.PI * 2);
   context.closePath();
-  context.fillStyle = "rgba(126, 181, 255, 0.24)";
+  context.fillStyle = currentViewMode === VIEW_MODES.VALUES
+    ? "rgba(242, 193, 78, 0.17)"
+    : "rgba(126, 181, 255, 0.17)";
   context.fill();
 
   context.beginPath();
   context.arc(center, center, radius, 0, Math.PI * 2);
   context.closePath();
-  context.shadowColor = "rgba(126, 181, 255, 0.62)";
-  context.shadowBlur = 10;
+  context.shadowColor = currentViewMode === VIEW_MODES.VALUES
+    ? "rgba(242, 193, 78, 0.42)"
+    : "rgba(126, 181, 255, 0.42)";
+  context.shadowBlur = 7;
   context.fillStyle = gradient;
   context.fill();
   context.shadowBlur = 0;
 
   context.beginPath();
   context.arc(center, center, radius, 0, Math.PI * 2);
-  context.strokeStyle = "rgba(255,255,255,0.88)";
-  context.lineWidth = 2.6;
+  context.strokeStyle = "rgba(255,255,255,0.7)";
+  context.lineWidth = 2.2;
   context.stroke();
 
   return context.getImageData(0, 0, MARKER_ICON_SIZE, MARKER_ICON_SIZE);
 }
 
 function ensureGradientMarkerIcon(targetColor) {
-  const key = `offer-gradient-${String(targetColor).replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`;
+  const modePrefix = currentViewMode === VIEW_MODES.VALUES ? "values" : "skills";
+  const key = `offer-gradient-${modePrefix}-${String(targetColor).replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`;
   if (markerIconCache.has(key)) return key;
   if (!map) return null;
   if (!map.hasImage(key)) {
@@ -664,7 +668,7 @@ function addOfferLayers() {
   });
 
   if (!map.hasImage("offer-gradient-fallback")) {
-    const fallbackImage = buildGradientMarkerImage("#7EB5FF");
+    const fallbackImage = buildGradientMarkerImage(currentViewMode === VIEW_MODES.VALUES ? VALUE_BASE_COLOR : SKILL_BASE_COLOR);
     if (fallbackImage) {
       map.addImage("offer-gradient-fallback", fallbackImage, { pixelRatio: 2 });
       markerIconCache.set("offer-gradient-fallback", true);
