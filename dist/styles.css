@@ -283,6 +283,10 @@ body {
   filter: none;
 }
 
+.map-wrapper.is-compatibility-mode {
+  background: #000000;
+}
+
 .map-wrapper.is-compatibility-mode::after {
   content: none;
 }

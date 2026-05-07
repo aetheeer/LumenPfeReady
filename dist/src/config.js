@@ -25,11 +25,11 @@ export const MAP_CONFIG = {
         type: "raster",
         source: "osm",
         paint: {
-          "raster-opacity": 0.9,
-          "raster-saturation": -0.7,
-          "raster-contrast": 0.1,
-          "raster-brightness-min": 0.02,
-          "raster-brightness-max": 0.5
+          "raster-opacity": 0.95,
+          "raster-saturation": -0.22,
+          "raster-contrast": 0.24,
+          "raster-brightness-min": 0.08,
+          "raster-brightness-max": 0.74
         }
       }
     ]
