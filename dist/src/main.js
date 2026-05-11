@@ -10,11 +10,11 @@ import {
   setUserFilterActive,
   setOfferViewMode,
   setActiveTagFilters
-} from "./mapView.js?v=1013";
-import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1013";
-import { setViewMode } from './mapView.js?v=1013';
-import { VIEW_MODES } from './config.js?v=1013';
-import { Onboarding } from './onboarding.js?v=1013';
+} from "./mapView.js?v=1025";
+import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1025";
+import { setViewMode } from './mapView.js?v=1025';
+import { VIEW_MODES } from './config.js?v=1025';
+import { Onboarding } from './onboarding.js?v=1025';
 
 const SESSION_KEY = "lumen.onboarding.session";
 

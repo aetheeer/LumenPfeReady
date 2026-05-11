@@ -2,7 +2,7 @@ import maplibregl from "https://esm.sh/maplibre-gl@4.7.1";
 import { MAP_CONFIG, VIEW_MODES } from "./config.js";
 import { searchFranceTravailOffers } from "../apis/lumenApi.js";
 import { inferOfferInsights } from "./offersInsights.js";
-import { PDL_DEPARTMENTS_GEOJSON } from "./pdlDepartmentsGeojson.js";
+import { FR_DEPARTMENTS_GEOJSON } from "./frDepartmentsGeojson.js";
 
 let map;
 let currentViewMode = VIEW_MODES.SKILLS;
@@ -16,7 +16,7 @@ let offerPopup = null;
 let currentOfferViewMode = "localization";
 let offersData = [];
 let offersRawById = new Map();
-let strictMapBounds = null;
+let departmentOfferSignals = new Map();
 let selectedSkills = [];
 let selectedValues = [];
 let activeSkillFilters = [];
@@ -37,7 +37,9 @@ const SOURCES = {
   perimeter: "nantes-perimeter-source",
   offers: "lumen-offers-source",
   labels: "lumen-labels-source",
+  pdlFocus: "lumen-pdl-focus-source",
   sectorDepartments: "lumen-sector-departments-source",
+  sectorDepartmentLabels: "lumen-sector-departments-labels-source",
   compatibilityRings: "lumen-compatibility-rings-source",
   compatibilityCenter: "lumen-compatibility-center-source"
 };
@@ -47,6 +49,8 @@ const LAYERS = {
   perimeterLine: "nantes-perimeter-line",
   offersCircle: "lumen-offers-circle",
   labels: "lumen-labels",
+  pdlFocusFill: "lumen-pdl-focus-fill",
+  pdlFocusLine: "lumen-pdl-focus-line",
   sectorDepartmentsFill: "lumen-sector-departments-fill",
   sectorDepartmentsLine: "lumen-sector-departments-line",
   sectorDepartmentsLabel: "lumen-sector-departments-label",
@@ -58,23 +62,80 @@ const LAYERS = {
 };
 
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
+const OFFERS_TARGET_DEPARTMENTS = ["44", "49", "53", "72", "85"];
+const PDL_DEPARTMENT_CODES = new Set(OFFERS_TARGET_DEPARTMENTS);
 const SECTOR_VIEW_CENTER = [-0.95, 47.38];
 const SECTOR_VIEW_ZOOM = MAP_CONFIG.minZoom;
 const SECTOR_MIN_ZOOM = Math.max(4.6, MAP_CONFIG.minZoom - 3.2);
 const VIEW_TRANSITION_DURATION_MS = 820;
 const SKILL_BASE_COLOR = "#7EB5FF";
 const VALUE_BASE_COLOR = "#F2C14E";
-const SKILL_COMPAT_PALETTE = ["#CFE6FF", "#A7D1FF", "#7EB5FF", "#4E96E5", "#1E5FA8"];
-const VALUE_COMPAT_PALETTE = ["#FFF4CC", "#FDECAF", "#F9DE86", "#F2C14E", "#D39F2B"];
+const SKILL_COMPAT_PALETTE = ["#DCEEFF", "#A8CDFF", "#5D9EFF", "#2E73DA", "#15458F"];
+const VALUE_COMPAT_PALETTE = ["#FFF6D8", "#FFE8A3", "#FFD35C", "#E8B23E", "#B9851D"];
 const MARKER_ICON_SIZE = 72;
 const markerIconCache = new Map();
 const FALLBACK_DEPARTMENT_PROFILES = {
+  "01": { sector: "Industrie", skill: "Maintenance", value: "Rigueur" },
+  "06": { sector: "Tourisme & commerce", skill: "Relation client", value: "Sens du service" },
+  "13": { sector: "Logistique", skill: "Gestion des flux", value: "Fiabilité" },
+  "31": { sector: "Numérique & services", skill: "Analyse de données", value: "Apprentissage continu" },
+  "33": { sector: "Commerce & distribution", skill: "Négociation commerciale", value: "Coopération" },
+  "59": { sector: "Industrie", skill: "Organisation", value: "Impact concret" },
+  "69": { sector: "Numérique & services", skill: "Gestion de projet", value: "Créativité" },
+  "75": { sector: "Numérique & services", skill: "Gestion de projet", value: "Impact concret" },
+  "77": { sector: "Logistique", skill: "Gestion des flux", value: "Fiabilité" },
+  "78": { sector: "Administration & gestion", skill: "Coordination", value: "Responsabilité" },
+  "91": { sector: "Numérique & services", skill: "Analyse de données", value: "Rigueur" },
+  "92": { sector: "Numérique & services", skill: "Coordination", value: "Performance" },
+  "93": { sector: "Commerce & distribution", skill: "Relation client", value: "Utilité" },
+  "94": { sector: "Santé & action sociale", skill: "Coordination", value: "Utilité" },
+  "95": { sector: "Logistique", skill: "Organisation", value: "Fiabilité" },
   "44": { sector: "Numérique & services", skill: "UX/UI design", value: "Créativité" },
   "49": { sector: "Santé & action sociale", skill: "Coordination", value: "Utilité" },
   "53": { sector: "Industrie", skill: "Maintenance", value: "Rigueur" },
   "72": { sector: "Logistique", skill: "Gestion des flux", value: "Fiabilité" },
   "85": { sector: "Tourisme & commerce", skill: "Relation client", value: "Sens du service" }
 };
+const FALLBACK_SECTOR_SEQUENCE = [
+  "Numérique & services",
+  "Santé & action sociale",
+  "Industrie",
+  "Logistique",
+  "Tourisme & commerce",
+  "Administration & gestion",
+  "BTP & maintenance",
+  "Commerce & distribution",
+  "Agriculture & environnement",
+  "Éducation & formation"
+];
+const FALLBACK_SKILL_SEQUENCE = [
+  "Gestion de projet",
+  "Coordination",
+  "Maintenance",
+  "Gestion des flux",
+  "Relation client",
+  "Organisation",
+  "Rigueur",
+  "Communication orale",
+  "Analyse de données",
+  "Adaptabilité"
+];
+const FALLBACK_VALUE_SEQUENCE = [
+  "Utilité",
+  "Créativité",
+  "Rigueur",
+  "Fiabilité",
+  "Sens du service",
+  "Impact concret",
+  "Autonomie",
+  "Coopération",
+  "Apprentissage continu",
+  "Responsabilité"
+];
+const FR_DEPARTMENT_CODES = (Array.isArray(FR_DEPARTMENTS_GEOJSON?.features) ? FR_DEPARTMENTS_GEOJSON.features : [])
+  .map((feature) => String(feature?.properties?.code || ""))
+  .filter(Boolean);
+const SECTOR_TARGET_DEPARTMENT_CODES = FR_DEPARTMENT_CODES.filter((code) => PDL_DEPARTMENT_CODES.has(code));
 const SIMULATED_OFFERS = [
   {
     id: "sim-uxui-kookline-niwanet",
@@ -257,7 +318,7 @@ function inferDominantSectorFromOffer(offer) {
 }
 
 function getDepartmentCodeFromOffer(offer, feature) {
-  const departementRaw = offer?.lieuTravail?.codeDepartement || offer?.lieuTravail?.codePostal || "";
+  const departementRaw = offer?.lieuTravail?.codeDepartement || offer?.lieuTravail?.codePostal || offer?._requestedDepartment || "";
   const clean = String(departementRaw).trim();
   if (/^\d{2}/.test(clean)) {
     return clean.slice(0, 2);
@@ -464,9 +525,6 @@ function buildOfferFeature(offer) {
   if (!located) return null;
   const { coordinates, source } = located;
 
-  const distanceToCenter = haversineKm(MAP_CONFIG.nantesCenter, coordinates);
-  if (distanceToCenter > MAP_CONFIG.hardLimitRadiusKm + 10) return null;
-
   const insights = inferOfferInsights(offer);
   const title = offer?.intitule || offer?.appellationlibelle || "Offre France Travail";
   const company = offer?.entreprise?.nom || "";
@@ -580,6 +638,17 @@ function hashFromString(value) {
     hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
   }
   return hash;
+}
+
+function getFallbackProfileByDepartmentCode(code) {
+  const explicit = FALLBACK_DEPARTMENT_PROFILES[code];
+  if (explicit) return explicit;
+  const hash = hashFromString(code);
+  return {
+    sector: FALLBACK_SECTOR_SEQUENCE[hash % FALLBACK_SECTOR_SEQUENCE.length],
+    skill: FALLBACK_SKILL_SEQUENCE[(hash * 7) % FALLBACK_SKILL_SEQUENCE.length],
+    value: FALLBACK_VALUE_SEQUENCE[(hash * 11) % FALLBACK_VALUE_SEQUENCE.length]
+  };
 }
 
 function getCompatibilityBand(ratio) {
@@ -775,19 +844,13 @@ function refreshOffers() {
 }
 
 function enforceStrictRadius() {
-  if (!map) return;
-  const center = MAP_CONFIG.nantesCenter;
-  const maxKm = MAP_CONFIG.hardLimitRadiusKm;
-  const current = map.getCenter();
-  const currentCoord = [current.lng, current.lat];
-  const distance = haversineKm(center, currentCoord);
-  if (distance <= maxKm) return;
-  const bearing = bearingDeg(center, currentCoord);
-  const clamped = destinationPoint(center, maxKm - 0.15, bearing);
-  map.easeTo({ center: clamped, duration: 240 });
+  return;
 }
 
 function addPerimeterLayers() {
+  // Perimeter intentionally disabled since localization now covers
+  // the broader Pays de la Loire area without hard radius constraints.
+  return;
   const circleFeature = buildCircle(MAP_CONFIG.nantesCenter, MAP_CONFIG.hardLimitRadiusKm);
   map.addSource(SOURCES.perimeter, {
     type: "geojson",
@@ -857,6 +920,39 @@ function addContextLabelsLayer() {
   });
 }
 
+function addPdlFocusLayers() {
+  const pdlFeatures = (Array.isArray(FR_DEPARTMENTS_GEOJSON?.features) ? FR_DEPARTMENTS_GEOJSON.features : [])
+    .filter((feature) => PDL_DEPARTMENT_CODES.has(String(feature?.properties?.code || "")));
+
+  map.addSource(SOURCES.pdlFocus, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: pdlFeatures }
+  });
+
+  map.addLayer({
+    id: LAYERS.pdlFocusFill,
+    type: "fill",
+    source: SOURCES.pdlFocus,
+    layout: { visibility: "visible" },
+    paint: {
+      "fill-color": "#9DCBFF",
+      "fill-opacity": 0.095
+    }
+  });
+
+  map.addLayer({
+    id: LAYERS.pdlFocusLine,
+    type: "line",
+    source: SOURCES.pdlFocus,
+    layout: { visibility: "visible" },
+    paint: {
+      "line-color": "rgba(157, 203, 255, 0.78)",
+      "line-width": 0.8,
+      "line-opacity": 0.72
+    }
+  });
+}
+
 function buildDepartmentSectorProfiles() {
   const aggregates = new Map();
   offersData.forEach((feature) => {
@@ -876,9 +972,44 @@ function buildDepartmentSectorProfiles() {
     bucket.valueCounts.set(value, (bucket.valueCounts.get(value) || 0) + 1);
   });
 
-  const pickTop = (counts, fallbackValue) => {
-    if (!(counts instanceof Map) || counts.size === 0) return fallbackValue;
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  // Merge reliable department-level signals from the fetch layer itself.
+  const mergedCountsByDepartment = new Map();
+  const mergeCounts = (target, source) => {
+    if (!(source instanceof Map)) return;
+    source.forEach((count, key) => {
+      target.set(key, (target.get(key) || 0) + count);
+    });
+  };
+  SECTOR_TARGET_DEPARTMENT_CODES.forEach((code) => {
+    const merged = { sectorCounts: new Map(), skillCounts: new Map(), valueCounts: new Map() };
+    const fetchedSignals = departmentOfferSignals.get(code);
+    const localizedSignals = aggregates.get(code);
+    // Prioritize signals tied to department request; keep localized geo signals as complement.
+    mergeCounts(merged.sectorCounts, fetchedSignals?.sectorCounts);
+    mergeCounts(merged.sectorCounts, localizedSignals?.sectorCounts);
+    mergeCounts(merged.skillCounts, fetchedSignals?.skillCounts);
+    mergeCounts(merged.skillCounts, localizedSignals?.skillCounts);
+    mergeCounts(merged.valueCounts, fetchedSignals?.valueCounts);
+    mergeCounts(merged.valueCounts, localizedSignals?.valueCounts);
+    mergedCountsByDepartment.set(code, merged);
+  });
+
+  const pickTopWithConfidence = (counts, fallbackValue) => {
+    if (!(counts instanceof Map) || counts.size === 0) {
+      return { value: fallbackValue, confident: false, total: 0, topCount: 0 };
+    }
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const [topValue, topCount] = sorted[0];
+    const total = sorted.reduce((acc, [, count]) => acc + count, 0);
+    const topRatio = total > 0 ? topCount / total : 0;
+    // Require enough volume and a clear lead to trust computed dominant.
+    const confident = total >= 6 && topRatio >= 0.42;
+    return {
+      value: confident ? topValue : fallbackValue,
+      confident,
+      total,
+      topCount
+    };
   };
 
   const profiles = {};
@@ -887,11 +1018,15 @@ function buildDepartmentSectorProfiles() {
   const hasSkillRef = selectedSkillRefs.size > 0;
   const hasValueRef = selectedValueRefs.size > 0;
   const denominator = (hasSkillRef ? 1 : 0) + (hasValueRef ? 1 : 0) || 1;
-  Object.entries(FALLBACK_DEPARTMENT_PROFILES).forEach(([code, profile]) => {
-    const bucket = aggregates.get(code);
-    const dominantSector = pickTop(bucket?.sectorCounts, profile.sector);
-    const dominantSkill = pickTop(bucket?.skillCounts, profile.skill);
-    const dominantValue = pickTop(bucket?.valueCounts, profile.value);
+  SECTOR_TARGET_DEPARTMENT_CODES.forEach((code) => {
+    const profile = getFallbackProfileByDepartmentCode(code);
+    const bucket = mergedCountsByDepartment.get(code);
+    const dominantSectorEntry = pickTopWithConfidence(bucket?.sectorCounts, profile.sector);
+    const dominantSkillEntry = pickTopWithConfidence(bucket?.skillCounts, profile.skill);
+    const dominantValueEntry = pickTopWithConfidence(bucket?.valueCounts, profile.value);
+    const dominantSector = dominantSectorEntry.value;
+    const dominantSkill = dominantSkillEntry.value;
+    const dominantValue = dominantValueEntry.value;
     const sectorSlug = toSectorSlug(dominantSector);
     const skillHit = hasSkillRef ? selectedSkillRefs.has(normalizeQuery(dominantSkill)) : false;
     const valueHit = hasValueRef ? selectedValueRefs.has(normalizeQuery(dominantValue)) : false;
@@ -903,6 +1038,7 @@ function buildDepartmentSectorProfiles() {
       sectorSlug,
       sectorColor: getSectorCompatibilityColorByRatio(compatibilityRatio),
       compatibilityRatio,
+      sectorConfidence: dominantSectorEntry.confident ? "measured" : "fallback",
       departmentLabel: dominantSector
     };
   });
@@ -926,14 +1062,11 @@ function buildSectorizationFeatureCollection() {
   const profiles = buildDepartmentSectorProfiles();
   sectorizationDominantSkills = new Set(Object.values(profiles).map((item) => normalizeQuery(item?.dominantSkill)).filter(Boolean));
   sectorizationDominantValues = new Set(Object.values(profiles).map((item) => normalizeQuery(item?.dominantValue)).filter(Boolean));
-  const features = (Array.isArray(PDL_DEPARTMENTS_GEOJSON?.features) ? PDL_DEPARTMENTS_GEOJSON.features : [])
+  const features = (Array.isArray(FR_DEPARTMENTS_GEOJSON?.features) ? FR_DEPARTMENTS_GEOJSON.features : [])
+    .filter((feature) => PDL_DEPARTMENT_CODES.has(String(feature?.properties?.code || "")))
     .map((feature) => {
       const code = String(feature?.properties?.code || "");
-      const defaults = FALLBACK_DEPARTMENT_PROFILES[code] || {
-        sector: "Autres services",
-        skill: "Compétence non renseignée",
-        value: "Valeur non renseignée"
-      };
+      const defaults = getFallbackProfileByDepartmentCode(code);
       const profile = profiles[code] || {
         dominantSector: defaults.sector,
         dominantSkill: defaults.skill,
@@ -959,11 +1092,54 @@ function buildSectorizationFeatureCollection() {
   return { type: "FeatureCollection", features };
 }
 
+function computeFeatureAnchorPoint(feature) {
+  const coords = feature?.geometry?.coordinates;
+  if (!coords) return [0, 0];
+  let sumLng = 0;
+  let sumLat = 0;
+  let count = 0;
+  const visit = (node) => {
+    if (!Array.isArray(node)) return;
+    if (typeof node[0] === "number" && typeof node[1] === "number") {
+      sumLng += node[0];
+      sumLat += node[1];
+      count += 1;
+      return;
+    }
+    node.forEach(visit);
+  };
+  visit(coords);
+  if (count === 0) return [0, 0];
+  return [sumLng / count, sumLat / count];
+}
+
+function buildSectorizationLabelCollection(featureCollection) {
+  const features = (featureCollection?.features || []).map((feature) => ({
+    type: "Feature",
+    geometry: {
+      type: "Point",
+      coordinates: computeFeatureAnchorPoint(feature)
+    },
+    properties: {
+      code: feature?.properties?.code || "",
+      nom: feature?.properties?.nom || "",
+      departmentLabel: feature?.properties?.departmentLabel || "",
+      sectorColor: feature?.properties?.sectorColor || SKILL_COMPAT_PALETTE[0]
+    }
+  }));
+  return { type: "FeatureCollection", features };
+}
+
 function addSectorizationLayers() {
   const initialVisibility = currentOfferViewMode === "sectorization" ? "visible" : "none";
+  const departmentFeatures = buildSectorizationFeatureCollection();
   map.addSource(SOURCES.sectorDepartments, {
     type: "geojson",
-    data: buildSectorizationFeatureCollection()
+    data: departmentFeatures
+  });
+  map.addSource(SOURCES.sectorDepartmentLabels, {
+    type: "geojson",
+    data: buildSectorizationLabelCollection(departmentFeatures)
   });
 
   map.addLayer({
@@ -992,21 +1168,23 @@ function addSectorizationLayers() {
   map.addLayer({
     id: LAYERS.sectorDepartmentsLabel,
     type: "symbol",
-    source: SOURCES.sectorDepartments,
+    source: SOURCES.sectorDepartmentLabels,
     layout: {
       visibility: initialVisibility,
       "text-field": ["get", "departmentLabel"],
       "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
-      "text-size": ["interpolate", ["linear"], ["zoom"], 7.8, 11, 9.4, 12, 11, 13],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 4.6, 7, 5.6, 7.8, 6.6, 8.8, 8.2, 10.2, 10, 11.2, 12, 12.4],
       "text-line-height": 1.2,
       "symbol-placement": "point",
+      "text-max-width": 7,
       "text-allow-overlap": true,
       "text-ignore-placement": true
     },
     paint: {
       "text-color": "rgba(241, 247, 255, 0.98)",
       "text-halo-color": "rgba(7, 12, 30, 0.95)",
-      "text-halo-width": 1.4
+      "text-halo-width": 1.15,
+      "text-opacity": ["interpolate", ["linear"], ["zoom"], 4.6, 0.56, 5.8, 0.66, 7.4, 0.78, 9.5, 0.9, 12, 0.96]
     }
   });
 
@@ -1026,7 +1204,9 @@ function addSectorizationLayers() {
 async function loadSectorizationData() {
   if (!map) return;
   try {
-    map.getSource(SOURCES.sectorDepartments)?.setData(buildSectorizationFeatureCollection());
+    const departmentFeatures = buildSectorizationFeatureCollection();
+    map.getSource(SOURCES.sectorDepartments)?.setData(departmentFeatures);
+    map.getSource(SOURCES.sectorDepartmentLabels)?.setData(buildSectorizationLabelCollection(departmentFeatures));
     emitSectorizationState();
   } catch (error) {
     console.warn("[Lumen] Impossible de charger la sectorisation :", error?.message || error);
@@ -1036,8 +1216,13 @@ async function loadSectorizationData() {
 function refreshSectorizationFromOffers() {
   if (!map) return;
   const departmentsSource = map.getSource(SOURCES.sectorDepartments);
+  const labelsSource = map.getSource(SOURCES.sectorDepartmentLabels);
   if (departmentsSource) {
-    departmentsSource.setData(buildSectorizationFeatureCollection());
+    const departmentFeatures = buildSectorizationFeatureCollection();
+    departmentsSource.setData(departmentFeatures);
+    if (labelsSource) {
+      labelsSource.setData(buildSectorizationLabelCollection(departmentFeatures));
+    }
     emitSectorizationState();
   }
 }
@@ -1189,6 +1374,15 @@ function setPerimeterVisibility(isVisible) {
   });
 }
 
+function setPdlFocusVisibility(isVisible) {
+  const visibility = isVisible ? "visible" : "none";
+  [LAYERS.pdlFocusFill, LAYERS.pdlFocusLine].forEach((layerId) => {
+    if (map?.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, "visibility", visibility);
+    }
+  });
+}
+
 function setOfferMarkersVisibility(isVisible) {
   if (!map?.getLayer(LAYERS.offersCircle)) return;
   map.setLayoutProperty(LAYERS.offersCircle, "visibility", isVisible ? "visible" : "none");
@@ -1304,17 +1498,49 @@ async function loadOffers() {
   updateOffersStatus();
 
   try {
+    const requests = OFFERS_TARGET_DEPARTMENTS.flatMap((departement) =>
+      OFFERS_FETCH_BATCHES.map((range) => ({ departement, range }))
+    );
     const responses = await Promise.all(
-      OFFERS_FETCH_BATCHES.map((range) =>
+      requests.map(({ departement, range }) =>
         searchFranceTravailOffers({
-          departement: "44",
-          rayon: 50,
+          departement,
           range,
           tri: 0
         })
       )
     );
-    const merged = responses.flatMap((response) => (Array.isArray(response?.resultats) ? response.resultats : []));
+    const merged = responses.flatMap((response, index) => {
+      const requestedDepartment = requests[index]?.departement || "";
+      const rawResults = Array.isArray(response?.resultats) ? response.resultats : [];
+      return rawResults.map((offer) => ({
+        ...offer,
+        _requestedDepartment: requestedDepartment
+      }));
+    });
+    departmentOfferSignals = new Map();
+    responses.forEach((response, index) => {
+      const requestedDepartment = requests[index]?.departement || "";
+      if (!requestedDepartment) return;
+      if (!departmentOfferSignals.has(requestedDepartment)) {
+        departmentOfferSignals.set(requestedDepartment, {
+          sectorCounts: new Map(),
+          skillCounts: new Map(),
+          valueCounts: new Map()
+        });
+      }
+      const signal = departmentOfferSignals.get(requestedDepartment);
+      const rawResults = Array.isArray(response?.resultats) ? response.resultats : [];
+      rawResults.forEach((offer) => {
+        const sector = inferDominantSectorFromOffer(offer);
+        const insights = inferOfferInsights(offer);
+        const skill = insights?.dominantSkill || "Compétence non renseignée";
+        const value = insights?.dominantValue || "Valeur non renseignée";
+        signal.sectorCounts.set(sector, (signal.sectorCounts.get(sector) || 0) + 1);
+        signal.skillCounts.set(skill, (signal.skillCounts.get(skill) || 0) + 1);
+        signal.valueCounts.set(value, (signal.valueCounts.get(value) || 0) + 1);
+      });
+    });
     const dedup = new Map();
     merged.forEach((offer) => {
       if (!offer?.id || dedup.has(offer.id)) return;
@@ -1343,6 +1569,7 @@ async function loadOffers() {
   } catch (error) {
     offersData = [];
     offersRawById = new Map();
+    departmentOfferSignals = new Map();
     offersMeta = {
       loading: false,
       loaded: true,
@@ -1424,7 +1651,6 @@ export function initMap(container) {
   container.innerHTML = "";
   ensureTooltip();
 
-  strictMapBounds = getBoundsFromCircle(MAP_CONFIG.nantesCenter, MAP_CONFIG.hardLimitRadiusKm);
   map = new maplibregl.Map({
     container,
     style: MAP_CONFIG.mapStyle,
@@ -1434,7 +1660,6 @@ export function initMap(container) {
     bearing: -15,
     minZoom: MAP_CONFIG.minZoom,
     maxZoom: MAP_CONFIG.maxZoom,
-    maxBounds: strictMapBounds,
     attributionControl: false
   });
 
@@ -1442,6 +1667,7 @@ export function initMap(container) {
 
   map.on("load", () => {
     addPerimeterLayers();
+    addPdlFocusLayers();
     addContextLabelsLayer();
     addSectorizationLayers();
     addCompatibilityGuideLayers();
@@ -1553,10 +1779,10 @@ export function setOfferViewMode(mode) {
       easing: (t) => 1 - ((1 - t) ** 3)
     };
     if (currentOfferViewMode === "compatibility") {
-      map.setMaxBounds(strictMapBounds);
       map.setMinZoom(MAP_CONFIG.minZoom);
       setGeographicLayersVisibility(false);
       setPerimeterVisibility(false);
+      setPdlFocusVisibility(false);
       setSectorizationLayersVisibility(false);
       map.easeTo({
         center: MAP_CONFIG.nantesCenter,
@@ -1566,11 +1792,11 @@ export function setOfferViewMode(mode) {
         ...smoothTransition
       });
     } else if (currentOfferViewMode === "sectorization") {
-      map.setMaxBounds(null);
       map.setMinZoom(SECTOR_MIN_ZOOM);
       ensureSectorizationLayersReady();
       setGeographicLayersVisibility(true);
       setPerimeterVisibility(false);
+      setPdlFocusVisibility(false);
       setSectorizationLayersVisibility(true);
       setCompatibilityGuidesVisibility(false);
       setOfferMarkersVisibility(false);
@@ -1583,10 +1809,10 @@ export function setOfferViewMode(mode) {
         ...smoothTransition
       });
     } else {
-      map.setMaxBounds(strictMapBounds);
       map.setMinZoom(MAP_CONFIG.minZoom);
       setGeographicLayersVisibility(true);
       setPerimeterVisibility(true);
+      setPdlFocusVisibility(true);
       setSectorizationLayersVisibility(false);
       map.easeTo({
         center: MAP_CONFIG.nantesCenter,
