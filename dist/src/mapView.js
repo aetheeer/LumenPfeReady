@@ -16,6 +16,7 @@ let offerPopup = null;
 let currentOfferViewMode = "localization";
 let offersData = [];
 let offersRawById = new Map();
+let offersRevision = 0;
 let departmentOfferSignals = new Map();
 let selectedSkills = [];
 let selectedValues = [];
@@ -23,6 +24,7 @@ let activeSkillFilters = [];
 let activeValueFilters = [];
 let sectorizationDominantSkills = new Set();
 let sectorizationDominantValues = new Set();
+let lastSectorizationDataSignature = "";
 let offersMeta = {
   loading: false,
   loaded: false,
@@ -74,96 +76,13 @@ const SKILL_COMPAT_PALETTE = ["#DCEEFF", "#A8CDFF", "#5D9EFF", "#2E73DA", "#1545
 const VALUE_COMPAT_PALETTE = ["#FFF6D8", "#FFE8A3", "#FFD35C", "#E8B23E", "#B9851D"];
 const MARKER_ICON_SIZE = 72;
 const markerIconCache = new Map();
-const FALLBACK_DEPARTMENT_PROFILES = {
-  "01": { sector: "Industrie", skill: "Maintenance", value: "Rigueur" },
-  "06": { sector: "Tourisme & commerce", skill: "Relation client", value: "Sens du service" },
-  "13": { sector: "Logistique", skill: "Gestion des flux", value: "Fiabilité" },
-  "31": { sector: "Numérique & services", skill: "Analyse de données", value: "Apprentissage continu" },
-  "33": { sector: "Commerce & distribution", skill: "Négociation commerciale", value: "Coopération" },
-  "59": { sector: "Industrie", skill: "Organisation", value: "Impact concret" },
-  "69": { sector: "Numérique & services", skill: "Gestion de projet", value: "Créativité" },
-  "75": { sector: "Numérique & services", skill: "Gestion de projet", value: "Impact concret" },
-  "77": { sector: "Logistique", skill: "Gestion des flux", value: "Fiabilité" },
-  "78": { sector: "Administration & gestion", skill: "Coordination", value: "Responsabilité" },
-  "91": { sector: "Numérique & services", skill: "Analyse de données", value: "Rigueur" },
-  "92": { sector: "Numérique & services", skill: "Coordination", value: "Performance" },
-  "93": { sector: "Commerce & distribution", skill: "Relation client", value: "Utilité" },
-  "94": { sector: "Santé & action sociale", skill: "Coordination", value: "Utilité" },
-  "95": { sector: "Logistique", skill: "Organisation", value: "Fiabilité" },
-  "44": { sector: "Numérique & services", skill: "UX/UI design", value: "Créativité" },
-  "49": { sector: "Santé & action sociale", skill: "Coordination", value: "Utilité" },
-  "53": { sector: "Industrie", skill: "Maintenance", value: "Rigueur" },
-  "72": { sector: "Logistique", skill: "Gestion des flux", value: "Fiabilité" },
-  "85": { sector: "Tourisme & commerce", skill: "Relation client", value: "Sens du service" }
-};
-const FALLBACK_SECTOR_SEQUENCE = [
-  "Numérique & services",
-  "Santé & action sociale",
-  "Industrie",
-  "Logistique",
-  "Tourisme & commerce",
-  "Administration & gestion",
-  "BTP & maintenance",
-  "Commerce & distribution",
-  "Agriculture & environnement",
-  "Éducation & formation"
-];
-const FALLBACK_SKILL_SEQUENCE = [
-  "Gestion de projet",
-  "Coordination",
-  "Maintenance",
-  "Gestion des flux",
-  "Relation client",
-  "Organisation",
-  "Rigueur",
-  "Communication orale",
-  "Analyse de données",
-  "Adaptabilité"
-];
-const FALLBACK_VALUE_SEQUENCE = [
-  "Utilité",
-  "Créativité",
-  "Rigueur",
-  "Fiabilité",
-  "Sens du service",
-  "Impact concret",
-  "Autonomie",
-  "Coopération",
-  "Apprentissage continu",
-  "Responsabilité"
-];
+const INSUFFICIENT_SECTOR_LABEL = "Données insuffisantes";
+const INSUFFICIENT_SKILL_LABEL = "Non déterminée";
+const INSUFFICIENT_VALUE_LABEL = "Non déterminée";
 const FR_DEPARTMENT_CODES = (Array.isArray(FR_DEPARTMENTS_GEOJSON?.features) ? FR_DEPARTMENTS_GEOJSON.features : [])
   .map((feature) => String(feature?.properties?.code || ""))
   .filter(Boolean);
 const SECTOR_TARGET_DEPARTMENT_CODES = FR_DEPARTMENT_CODES.filter((code) => PDL_DEPARTMENT_CODES.has(code));
-const SIMULATED_OFFERS = [
-  {
-    id: "sim-uxui-kookline-niwanet",
-    intitule: "Alternance - UX/UI Designer (F/H)",
-    entreprise: { nom: "Kookline / Niwanet" },
-    lieuTravail: {
-      libelle: "44980 Sainte-Luce-sur-Loire",
-      latitude: 47.2556,
-      longitude: -1.4849
-    },
-    description:
-      "Alternance UX/UI Designer. Missions: conception d'interfaces web, ateliers UX, wireframes, prototypage, tests utilisateurs, collaboration produit et developpement.",
-    qualitesProfessionnelles: [{ libelle: "Creativite" }, { libelle: "Travail en equipe" }]
-  },
-  {
-    id: "sim-po-chef-projet-digital-beapp",
-    intitule: "PO / Chef-fe de projet digital",
-    entreprise: { nom: "BeApp" },
-    lieuTravail: {
-      libelle: "44200 Nantes",
-      latitude: 47.2019,
-      longitude: -1.5439
-    },
-    description:
-      "Pilotage produit digital, cadrage fonctionnel, priorisation, coordination equipe, suivi roadmap et conception UX en lien avec les parties prenantes.",
-    qualitesProfessionnelles: [{ libelle: "Organisation" }, { libelle: "Gestion de projet" }]
-  }
-];
 const AGGLO_CITY_COORDS = {
   nantes: [-1.553621, 47.218371],
   rezé: [-1.5688, 47.1906],
@@ -303,17 +222,58 @@ function toSectorSlug(value) {
 }
 
 function inferDominantSectorFromOffer(offer) {
+  const extractRomeCode = (entry) => {
+    const candidates = [
+      entry?.codeRome,
+      entry?.romeCode,
+      entry?.appellation?.codeRome,
+      entry?.metier?.codeRome,
+      entry?.familleRome?.code,
+      entry?.origineOffre?.codeRome
+    ];
+    const fromList = Array.isArray(entry?.romeCodes) ? entry.romeCodes[0] : null;
+    if (fromList) candidates.push(fromList);
+    const found = candidates.find((value) => typeof value === "string" && /^[A-Z]\d{4}$/i.test(value.trim()));
+    return found ? found.trim().toUpperCase() : "";
+  };
+  const ROME_SECTOR_BY_PREFIX = {
+    A: "Agriculture / environnement",
+    B: "Arts / artisanat",
+    C: "Banque / assurance / immobilier",
+    D: "Commerce / vente",
+    E: "Communication / multimédia",
+    F: "BTP / construction",
+    G: "Hôtellerie / restauration / tourisme",
+    H: "Industrie",
+    I: "Installation / maintenance",
+    J: "Santé",
+    K: "Services à la personne / action sociale",
+    L: "Spectacle",
+    M: "Support entreprise / gestion",
+    N: "Transport / logistique"
+  };
+  const romeCode = extractRomeCode(offer);
+  if (romeCode) {
+    const sector = ROME_SECTOR_BY_PREFIX[romeCode[0]];
+    if (sector) return sector;
+  }
+
   const text = normalizeQuery([
     offer?.intitule,
     offer?.description,
     offer?.entreprise?.nom
   ].filter(Boolean).join(" "));
   if (!text) return "Autres services";
-  if (/(developp|devops|data|web|ux|ui|informat|logiciel|digital|tech)/.test(text)) return "Numérique & services";
-  if (/(infirm|soignant|medical|medic|social|aide a domicile)/.test(text)) return "Santé & action sociale";
-  if (/(logist|transport|entrepot|supply|cariste)/.test(text)) return "Logistique";
+  // Strict fallback keywords only when ROME is unavailable.
+  if (/(informatique|logiciel|developpeur|developpement|data|cybersecurit|ux|ui design|numerique)/.test(text)) return "Numérique & services";
+  if (/(infirm|soignant|medical|medic|sante|social|aide a domicile)/.test(text)) return "Santé";
+  if (/(logist|transport|entrepot|supply|cariste|livraison)/.test(text)) return "Transport / logistique";
   if (/(production|industrie|usinage|maintenance|qualite)/.test(text)) return "Industrie";
-  if (/(vente|commerce|tourisme|hotel|restauration|accueil)/.test(text)) return "Tourisme & commerce";
+  if (/(vente|commerce|conseil client|negociation)/.test(text)) return "Commerce / vente";
+  if (/(tourisme|hotel|restauration|accueil)/.test(text)) return "Hôtellerie / restauration / tourisme";
+  if (/(gestion|administratif|comptabil|support|rh|ressources humaines)/.test(text)) return "Support entreprise / gestion";
+  if (/(btp|chantier|construction|macon|electricien|plombier)/.test(text)) return "BTP / construction";
+  if (/(agricol|environnement|paysagiste|espaces verts)/.test(text)) return "Agriculture / environnement";
   return "Autres services";
 }
 
@@ -640,17 +600,6 @@ function hashFromString(value) {
   return hash;
 }
 
-function getFallbackProfileByDepartmentCode(code) {
-  const explicit = FALLBACK_DEPARTMENT_PROFILES[code];
-  if (explicit) return explicit;
-  const hash = hashFromString(code);
-  return {
-    sector: FALLBACK_SECTOR_SEQUENCE[hash % FALLBACK_SECTOR_SEQUENCE.length],
-    skill: FALLBACK_SKILL_SEQUENCE[(hash * 7) % FALLBACK_SKILL_SEQUENCE.length],
-    value: FALLBACK_VALUE_SEQUENCE[(hash * 11) % FALLBACK_VALUE_SEQUENCE.length]
-  };
-}
-
 function getCompatibilityBand(ratio) {
   if (ratio >= 0.9) return "inner";
   if (ratio >= 0.5) return "middle";
@@ -843,6 +792,18 @@ function refreshOffers() {
   updateOffersStatus();
 }
 
+function buildSectorizationDataSignature() {
+  const part = (list) => (Array.isArray(list) ? [...list].map((v) => normalizeQuery(v)).sort().join("|") : "");
+  return [
+    offersRevision,
+    offersRawById.size,
+    part(selectedSkills),
+    part(selectedValues),
+    part(activeSkillFilters),
+    part(activeValueFilters)
+  ].join("::");
+}
+
 function enforceStrictRadius() {
   return;
 }
@@ -984,31 +945,35 @@ function buildDepartmentSectorProfiles() {
     const merged = { sectorCounts: new Map(), skillCounts: new Map(), valueCounts: new Map() };
     const fetchedSignals = departmentOfferSignals.get(code);
     const localizedSignals = aggregates.get(code);
-    // Prioritize signals tied to department request; keep localized geo signals as complement.
-    mergeCounts(merged.sectorCounts, fetchedSignals?.sectorCounts);
-    mergeCounts(merged.sectorCounts, localizedSignals?.sectorCounts);
-    mergeCounts(merged.skillCounts, fetchedSignals?.skillCounts);
-    mergeCounts(merged.skillCounts, localizedSignals?.skillCounts);
-    mergeCounts(merged.valueCounts, fetchedSignals?.valueCounts);
-    mergeCounts(merged.valueCounts, localizedSignals?.valueCounts);
+    const fetchedTotal = fetchedSignals?.sectorCounts instanceof Map
+      ? [...fetchedSignals.sectorCounts.values()].reduce((acc, count) => acc + count, 0)
+      : 0;
+    // Use department fetch signals as source of truth.
+    // Fallback to localized geo signals only when a department has no fetched offers.
+    if (fetchedTotal > 0) {
+      mergeCounts(merged.sectorCounts, fetchedSignals?.sectorCounts);
+      mergeCounts(merged.skillCounts, fetchedSignals?.skillCounts);
+      mergeCounts(merged.valueCounts, fetchedSignals?.valueCounts);
+    } else {
+      mergeCounts(merged.sectorCounts, localizedSignals?.sectorCounts);
+      mergeCounts(merged.skillCounts, localizedSignals?.skillCounts);
+      mergeCounts(merged.valueCounts, localizedSignals?.valueCounts);
+    }
     mergedCountsByDepartment.set(code, merged);
   });
 
-  const pickTopWithConfidence = (counts, fallbackValue) => {
+  const pickTopMajority = (counts, fallbackValue) => {
     if (!(counts instanceof Map) || counts.size === 0) {
-      return { value: fallbackValue, confident: false, total: 0, topCount: 0 };
+      return { value: fallbackValue, total: 0, topCount: 0, entries: [] };
     }
     const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
     const [topValue, topCount] = sorted[0];
     const total = sorted.reduce((acc, [, count]) => acc + count, 0);
-    const topRatio = total > 0 ? topCount / total : 0;
-    // Require enough volume and a clear lead to trust computed dominant.
-    const confident = total >= 6 && topRatio >= 0.42;
     return {
-      value: confident ? topValue : fallbackValue,
-      confident,
+      value: topValue,
       total,
-      topCount
+      topCount,
+      entries: sorted
     };
   };
 
@@ -1019,11 +984,10 @@ function buildDepartmentSectorProfiles() {
   const hasValueRef = selectedValueRefs.size > 0;
   const denominator = (hasSkillRef ? 1 : 0) + (hasValueRef ? 1 : 0) || 1;
   SECTOR_TARGET_DEPARTMENT_CODES.forEach((code) => {
-    const profile = getFallbackProfileByDepartmentCode(code);
     const bucket = mergedCountsByDepartment.get(code);
-    const dominantSectorEntry = pickTopWithConfidence(bucket?.sectorCounts, profile.sector);
-    const dominantSkillEntry = pickTopWithConfidence(bucket?.skillCounts, profile.skill);
-    const dominantValueEntry = pickTopWithConfidence(bucket?.valueCounts, profile.value);
+    const dominantSectorEntry = pickTopMajority(bucket?.sectorCounts, INSUFFICIENT_SECTOR_LABEL);
+    const dominantSkillEntry = pickTopMajority(bucket?.skillCounts, INSUFFICIENT_SKILL_LABEL);
+    const dominantValueEntry = pickTopMajority(bucket?.valueCounts, INSUFFICIENT_VALUE_LABEL);
     const dominantSector = dominantSectorEntry.value;
     const dominantSkill = dominantSkillEntry.value;
     const dominantValue = dominantValueEntry.value;
@@ -1038,10 +1002,27 @@ function buildDepartmentSectorProfiles() {
       sectorSlug,
       sectorColor: getSectorCompatibilityColorByRatio(compatibilityRatio),
       compatibilityRatio,
-      sectorConfidence: dominantSectorEntry.confident ? "measured" : "fallback",
       departmentLabel: dominantSector
     };
   });
+
+  const sectorDebugRows = SECTOR_TARGET_DEPARTMENT_CODES.map((code) => {
+    const sectorCounts = mergedCountsByDepartment.get(code)?.sectorCounts;
+    const entries = sectorCounts instanceof Map ? [...sectorCounts.entries()].sort((a, b) => b[1] - a[1]) : [];
+    const total = entries.reduce((acc, [, count]) => acc + count, 0);
+    const [topSector = INSUFFICIENT_SECTOR_LABEL, topCount = 0] = entries[0] || [];
+    const sectorsCounted = entries.length > 0
+      ? entries.map(([sector, count]) => `${sector} (${count})`).join(" | ")
+      : "Aucun";
+    return {
+      departement: code,
+      offresAnalysees: total,
+      secteursComptes: sectorsCounted,
+      secteurRetenu: topSector,
+      occurrencesSecteurRetenu: topCount
+    };
+  });
+  console.table(sectorDebugRows);
 
   return profiles;
 }
@@ -1066,14 +1047,13 @@ function buildSectorizationFeatureCollection() {
     .filter((feature) => PDL_DEPARTMENT_CODES.has(String(feature?.properties?.code || "")))
     .map((feature) => {
       const code = String(feature?.properties?.code || "");
-      const defaults = getFallbackProfileByDepartmentCode(code);
       const profile = profiles[code] || {
-        dominantSector: defaults.sector,
-        dominantSkill: defaults.skill,
-        dominantValue: defaults.value,
-        sectorSlug: toSectorSlug(defaults.sector),
+        dominantSector: INSUFFICIENT_SECTOR_LABEL,
+        dominantSkill: INSUFFICIENT_SKILL_LABEL,
+        dominantValue: INSUFFICIENT_VALUE_LABEL,
+        sectorSlug: toSectorSlug(INSUFFICIENT_SECTOR_LABEL),
         sectorColor: getSectorCompatibilityColorByRatio(0),
-        departmentLabel: defaults.sector
+        departmentLabel: INSUFFICIENT_SECTOR_LABEL
       };
       return {
         ...feature,
@@ -1215,6 +1195,8 @@ async function loadSectorizationData() {
 
 function refreshSectorizationFromOffers() {
   if (!map) return;
+  const signature = buildSectorizationDataSignature();
+  if (signature === lastSectorizationDataSignature) return;
   const departmentsSource = map.getSource(SOURCES.sectorDepartments);
   const labelsSource = map.getSource(SOURCES.sectorDepartmentLabels);
   if (departmentsSource) {
@@ -1223,6 +1205,7 @@ function refreshSectorizationFromOffers() {
     if (labelsSource) {
       labelsSource.setData(buildSectorizationLabelCollection(departmentFeatures));
     }
+    lastSectorizationDataSignature = signature;
     emitSectorizationState();
   }
 }
@@ -1519,6 +1502,7 @@ async function loadOffers() {
       }));
     });
     departmentOfferSignals = new Map();
+    const seenOfferIdsByDepartment = new Map();
     responses.forEach((response, index) => {
       const requestedDepartment = requests[index]?.departement || "";
       if (!requestedDepartment) return;
@@ -1529,9 +1513,16 @@ async function loadOffers() {
           valueCounts: new Map()
         });
       }
+      if (!seenOfferIdsByDepartment.has(requestedDepartment)) {
+        seenOfferIdsByDepartment.set(requestedDepartment, new Set());
+      }
       const signal = departmentOfferSignals.get(requestedDepartment);
+      const seenIds = seenOfferIdsByDepartment.get(requestedDepartment);
       const rawResults = Array.isArray(response?.resultats) ? response.resultats : [];
       rawResults.forEach((offer) => {
+        const offerId = offer?.id || "";
+        if (offerId && seenIds.has(offerId)) return;
+        if (offerId) seenIds.add(offerId);
         const sector = inferDominantSectorFromOffer(offer);
         const insights = inferOfferInsights(offer);
         const skill = insights?.dominantSkill || "Compétence non renseignée";
@@ -1546,12 +1537,8 @@ async function loadOffers() {
       if (!offer?.id || dedup.has(offer.id)) return;
       dedup.set(offer.id, offer);
     });
-    SIMULATED_OFFERS.forEach((offer) => {
-      if (!dedup.has(offer.id)) {
-        dedup.set(offer.id, offer);
-      }
-    });
     const results = [...dedup.values()];
+    offersRevision += 1;
     offersRawById = new Map(results.map((offer) => [offer?.id || "", offer]));
     offersData = results.map(buildOfferFeature).filter(Boolean);
     const precise = offersData.filter((feature) => feature.properties.locationSource === "precise").length;
@@ -1568,6 +1555,7 @@ async function loadOffers() {
     refreshOffers();
   } catch (error) {
     offersData = [];
+    offersRevision += 1;
     offersRawById = new Map();
     departmentOfferSignals = new Map();
     offersMeta = {
@@ -1683,6 +1671,7 @@ export function initMap(container) {
     enforceStrictRadius();
   });
   map.on("zoom", () => {
+    if (currentOfferViewMode === "sectorization") return;
     refreshOffers();
   });
 }
@@ -1775,8 +1764,11 @@ export function setOfferViewMode(mode) {
       return;
     }
     const smoothTransition = {
-      duration: VIEW_TRANSITION_DURATION_MS,
-      easing: (t) => 1 - ((1 - t) ** 3)
+      duration: VIEW_TRANSITION_DURATION_MS + 120,
+      curve: 1.25,
+      speed: 0.62,
+      essential: true,
+      easing: (t) => 1 - ((1 - t) ** 3.2)
     };
     if (currentOfferViewMode === "compatibility") {
       map.setMinZoom(MAP_CONFIG.minZoom);
@@ -1784,9 +1776,9 @@ export function setOfferViewMode(mode) {
       setPerimeterVisibility(false);
       setPdlFocusVisibility(false);
       setSectorizationLayersVisibility(false);
-      map.easeTo({
+      map.flyTo({
         center: MAP_CONFIG.nantesCenter,
-        zoom: Math.max(map.getZoom(), 11.6),
+        zoom: 11.6,
         pitch: 0,
         bearing: 0,
         ...smoothTransition
@@ -1801,7 +1793,7 @@ export function setOfferViewMode(mode) {
       setCompatibilityGuidesVisibility(false);
       setOfferMarkersVisibility(false);
       refreshSectorizationFromOffers();
-      map.easeTo({
+      map.flyTo({
         center: SECTOR_VIEW_CENTER,
         zoom: SECTOR_VIEW_ZOOM,
         pitch: 0,
@@ -1814,9 +1806,9 @@ export function setOfferViewMode(mode) {
       setPerimeterVisibility(true);
       setPdlFocusVisibility(true);
       setSectorizationLayersVisibility(false);
-      map.easeTo({
+      map.flyTo({
         center: MAP_CONFIG.nantesCenter,
-        zoom: Math.max(MAP_CONFIG.initialZoom, map.getZoom()),
+        zoom: MAP_CONFIG.initialZoom,
         pitch: isIsometricView ? 45 : 0,
         bearing: isIsometricView ? -15 : 0,
         ...smoothTransition
