@@ -10,11 +10,11 @@ import {
   setUserFilterActive,
   setOfferViewMode,
   setActiveTagFilters
-} from "./mapView.js?v=1000";
-import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1000";
-import { setViewMode } from './mapView.js?v=1000';
-import { VIEW_MODES } from './config.js?v=1000';
-import { Onboarding } from './onboarding.js?v=1000';
+} from "./mapView.js?v=1013";
+import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1013";
+import { setViewMode } from './mapView.js?v=1013';
+import { VIEW_MODES } from './config.js?v=1013';
+import { Onboarding } from './onboarding.js?v=1013';
 
 const SESSION_KEY = "lumen.onboarding.session";
 
@@ -33,7 +33,40 @@ function updateCompatibilityLegend(mode) {
   legend.classList.toggle("is-values-mode", mode === VIEW_MODES.VALUES);
 }
 
-function renderTagList(host, tags, emptyText, kind, activeFilters, onToggle) {
+function setSkillsValuesToggleDisabled(disabled) {
+  const container = document.querySelector("#view-toggle");
+  if (!container) return;
+  container.classList.toggle("is-disabled", Boolean(disabled));
+  const buttons = container.querySelectorAll("[data-view]");
+  buttons.forEach((button) => {
+    button.disabled = Boolean(disabled);
+    button.setAttribute("aria-disabled", String(Boolean(disabled)));
+    if (disabled) {
+      button.style.pointerEvents = "none";
+    } else {
+      button.style.pointerEvents = "";
+    }
+  });
+}
+
+function updateOfferLegendForMode(mode) {
+  const legend = document.querySelector(".map-side-panel-legend");
+  if (!legend) return;
+  const labels = legend.querySelectorAll(".map-side-panel-legend-scale span");
+  if (labels.length < 2) return;
+  labels[0].textContent = "Compatibilité faible";
+  labels[1].textContent = "Compatibilité forte";
+}
+
+function normalizeTag(value) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function renderTagList(host, tags, emptyText, kind, activeFilters, onToggle, sectorizationState = {}) {
   if (!host) return;
   host.innerHTML = "";
   if (!Array.isArray(tags) || tags.length === 0) {
@@ -57,18 +90,30 @@ function renderTagList(host, tags, emptyText, kind, activeFilters, onToggle) {
     if (kind === "values") {
       item.classList.add("map-side-panel-tag-values");
     }
-    const isActive = kind === "skills"
+    const isActiveByFilter = kind === "skills"
       ? activeFilters.skills.has(tag)
       : activeFilters.values.has(tag);
-    const isValueSelectionLocked = kind === "values" && activeFilters.values.size >= 3 && !isActive;
+    const isSectorizationMode = sectorizationState.mode === "sectorization" && (kind === "skills" || kind === "values");
+    const dominantSet = kind === "skills" ? (sectorizationState.dominantSkills || new Set()) : (sectorizationState.dominantValues || new Set());
+    const isDominantInSectorization = dominantSet.has(normalizeTag(tag));
+    const isActive = isSectorizationMode ? isDominantInSectorization : isActiveByFilter;
+    const isValueSelectionLocked = !isSectorizationMode && kind === "values" && activeFilters.values.size >= 3 && !isActive;
     item.classList.add(isActive ? "is-active" : "is-inactive");
     if (isValueSelectionLocked) {
       item.classList.add("is-disabled");
       item.disabled = true;
       item.setAttribute("aria-disabled", "true");
+    } else if (isSectorizationMode) {
+      // In sectorization mode we keep a strict active/inactive visual state,
+      // while preventing interactions without applying the disabled opacity style.
+      item.disabled = true;
+      item.setAttribute("aria-disabled", "true");
+      item.style.pointerEvents = "none";
     }
     item.setAttribute("aria-pressed", String(isActive));
-    item.addEventListener("click", () => onToggle(kind, tag));
+    if (!isSectorizationMode) {
+      item.addEventListener("click", () => onToggle(kind, tag));
+    }
     item.textContent = tag;
     host.appendChild(item);
   });
@@ -84,6 +129,16 @@ function renderUserContextPanel(onboardingData) {
     skills: new Set(Array.isArray(data?.skills) ? data.skills : []),
     values: new Set(Array.isArray(data?.values) ? data.values.slice(0, 3) : [])
   };
+  const sectorizationState = {
+    mode: "localization",
+    dominantSkills: new Set(),
+    dominantValues: new Set()
+  };
+
+  const rerenderTags = () => {
+    renderTagList(skillsHost, data?.skills || [], "Aucune compétence sélectionnée", "skills", activeFilters, toggleFilterTag, sectorizationState);
+    renderTagList(valuesHost, data?.values || [], "Aucune valeur sélectionnée", "values", activeFilters, toggleFilterTag, sectorizationState);
+  };
 
   const applyActiveFilters = () => {
     setActiveTagFilters({
@@ -96,19 +151,17 @@ function renderUserContextPanel(onboardingData) {
     const bucket = kind === "skills" ? activeFilters.skills : activeFilters.values;
     if (bucket.has(tag)) bucket.delete(tag);
     else if (kind !== "values" || bucket.size < 3) bucket.add(tag);
-    renderTagList(skillsHost, data?.skills || [], "Aucune compétence sélectionnée", "skills", activeFilters, toggleFilterTag);
-    renderTagList(valuesHost, data?.values || [], "Aucune valeur sélectionnée", "values", activeFilters, toggleFilterTag);
+    rerenderTags();
     applyActiveFilters();
   };
-  renderTagList(skillsHost, data?.skills || [], "Aucune compétence sélectionnée", "skills", activeFilters, toggleFilterTag);
-  renderTagList(valuesHost, data?.values || [], "Aucune valeur sélectionnée", "values", activeFilters, toggleFilterTag);
+  rerenderTags();
 
   const isUrgent = data?.selectedProfile === "urgent";
   if (deadlineSection) {
     deadlineSection.hidden = !isUrgent;
   }
   if (isUrgent) {
-    renderTagList(deadlineHost, data?.deadline ? [data.deadline] : [], "Aucun délai sélectionné", "deadline", activeFilters, toggleFilterTag);
+    renderTagList(deadlineHost, data?.deadline ? [data.deadline] : [], "Aucun délai sélectionné", "deadline", activeFilters, toggleFilterTag, sectorizationState);
   } else if (deadlineHost) {
     deadlineHost.innerHTML = "";
   }
@@ -130,6 +183,17 @@ function renderUserContextPanel(onboardingData) {
 
   setUserFilterActive(true);
   applyActiveFilters();
+
+  if (!window.__lumenSectorizationStateBound) {
+    window.addEventListener("lumen:sectorization-state", (event) => {
+      const detail = event?.detail || {};
+      sectorizationState.mode = detail.mode || "localization";
+      sectorizationState.dominantSkills = new Set(Array.isArray(detail.dominantSkills) ? detail.dominantSkills : []);
+      sectorizationState.dominantValues = new Set(Array.isArray(detail.dominantValues) ? detail.dominantValues : []);
+      rerenderTags();
+    });
+    window.__lumenSectorizationStateBound = true;
+  }
 
   collapseToggle.dataset.bound = "true";
 }
@@ -166,6 +230,7 @@ function initializeApp(onboardingData) {
 
   initMap(mapRoot);
   setOfferViewMode("localization");
+  setSkillsValuesToggleDisabled(false);
   renderUserContextPanel(onboardingData);
 
   const controls = initControls(document);
@@ -197,7 +262,10 @@ function initializeApp(onboardingData) {
 
   initOfferViewToggle((mode) => {
     setOfferViewMode(mode);
+    updateOfferLegendForMode(mode);
+    setSkillsValuesToggleDisabled(mode === "sectorization");
   });
+  updateOfferLegendForMode("localization");
 
   window.addEventListener("resize", () => {
     resizeMap();

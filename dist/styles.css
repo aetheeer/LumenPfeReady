@@ -284,7 +284,7 @@ body {
 }
 
 .map-wrapper.is-compatibility-mode {
-  background: #000000;
+  background: #070A10;
 }
 
 .map-wrapper.is-compatibility-mode::after {
@@ -548,12 +548,24 @@ body {
   width: 100%;
   height: 11px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #7EB5FF 0%, #FFA569 72%, #FF6969 100%);
+  background: linear-gradient(90deg,
+    #CFE6FF 0%, #CFE6FF 20%,
+    #A7D1FF 20%, #A7D1FF 40%,
+    #7EB5FF 40%, #7EB5FF 60%,
+    #4E96E5 60%, #4E96E5 80%,
+    #1E5FA8 80%, #1E5FA8 100%
+  );
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
 .map-side-panel-legend.is-values-mode .map-side-panel-legend-bar {
-  background: linear-gradient(90deg, #F2C14E 0%, #FFA569 72%, #FF6969 100%);
+  background: linear-gradient(90deg,
+    #FFF4CC 0%, #FFF4CC 20%,
+    #FDECAF 20%, #FDECAF 40%,
+    #F9DE86 40%, #F9DE86 60%,
+    #F2C14E 60%, #F2C14E 80%,
+    #D39F2B 80%, #D39F2B 100%
+  );
 }
 
 .map-side-panel-legend-scale {

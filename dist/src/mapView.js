@@ -2,6 +2,7 @@ import maplibregl from "https://esm.sh/maplibre-gl@4.7.1";
 import { MAP_CONFIG, VIEW_MODES } from "./config.js";
 import { searchFranceTravailOffers } from "../apis/lumenApi.js";
 import { inferOfferInsights } from "./offersInsights.js";
+import { PDL_DEPARTMENTS_GEOJSON } from "./pdlDepartmentsGeojson.js";
 
 let map;
 let currentViewMode = VIEW_MODES.SKILLS;
@@ -14,10 +15,14 @@ let tooltip = null;
 let offerPopup = null;
 let currentOfferViewMode = "localization";
 let offersData = [];
+let offersRawById = new Map();
+let strictMapBounds = null;
 let selectedSkills = [];
 let selectedValues = [];
 let activeSkillFilters = [];
 let activeValueFilters = [];
+let sectorizationDominantSkills = new Set();
+let sectorizationDominantValues = new Set();
 let offersMeta = {
   loading: false,
   loaded: false,
@@ -32,6 +37,7 @@ const SOURCES = {
   perimeter: "nantes-perimeter-source",
   offers: "lumen-offers-source",
   labels: "lumen-labels-source",
+  sectorDepartments: "lumen-sector-departments-source",
   compatibilityRings: "lumen-compatibility-rings-source",
   compatibilityCenter: "lumen-compatibility-center-source"
 };
@@ -41,6 +47,9 @@ const LAYERS = {
   perimeterLine: "nantes-perimeter-line",
   offersCircle: "lumen-offers-circle",
   labels: "lumen-labels",
+  sectorDepartmentsFill: "lumen-sector-departments-fill",
+  sectorDepartmentsLine: "lumen-sector-departments-line",
+  sectorDepartmentsLabel: "lumen-sector-departments-label",
   compatibilityRingInner: "lumen-compatibility-ring-inner",
   compatibilityRingMid: "lumen-compatibility-ring-mid",
   compatibilityRingOuter: "lumen-compatibility-ring-outer",
@@ -49,12 +58,23 @@ const LAYERS = {
 };
 
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
+const SECTOR_VIEW_CENTER = [-0.95, 47.38];
+const SECTOR_VIEW_ZOOM = MAP_CONFIG.minZoom;
+const SECTOR_MIN_ZOOM = Math.max(4.6, MAP_CONFIG.minZoom - 3.2);
+const VIEW_TRANSITION_DURATION_MS = 820;
 const SKILL_BASE_COLOR = "#7EB5FF";
 const VALUE_BASE_COLOR = "#F2C14E";
-const MID_COMPAT_COLOR = "#FFA569";
-const HIGH_COMPAT_COLOR = "#FF6969";
+const SKILL_COMPAT_PALETTE = ["#CFE6FF", "#A7D1FF", "#7EB5FF", "#4E96E5", "#1E5FA8"];
+const VALUE_COMPAT_PALETTE = ["#FFF4CC", "#FDECAF", "#F9DE86", "#F2C14E", "#D39F2B"];
 const MARKER_ICON_SIZE = 72;
 const markerIconCache = new Map();
+const FALLBACK_DEPARTMENT_PROFILES = {
+  "44": { sector: "Numérique & services", skill: "UX/UI design", value: "Créativité" },
+  "49": { sector: "Santé & action sociale", skill: "Coordination", value: "Utilité" },
+  "53": { sector: "Industrie", skill: "Maintenance", value: "Rigueur" },
+  "72": { sector: "Logistique", skill: "Gestion des flux", value: "Fiabilité" },
+  "85": { sector: "Tourisme & commerce", skill: "Relation client", value: "Sens du service" }
+};
 const SIMULATED_OFFERS = [
   {
     id: "sim-uxui-kookline-niwanet",
@@ -211,6 +231,51 @@ function normalizeQuery(value) {
     .toLowerCase();
 }
 
+function toSectorSlug(value) {
+  const normalized = normalizeQuery(value);
+  return normalized
+    .replace(/&/g, " ")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function inferDominantSectorFromOffer(offer) {
+  const text = normalizeQuery([
+    offer?.intitule,
+    offer?.description,
+    offer?.entreprise?.nom
+  ].filter(Boolean).join(" "));
+  if (!text) return "Autres services";
+  if (/(developp|devops|data|web|ux|ui|informat|logiciel|digital|tech)/.test(text)) return "Numérique & services";
+  if (/(infirm|soignant|medical|medic|social|aide a domicile)/.test(text)) return "Santé & action sociale";
+  if (/(logist|transport|entrepot|supply|cariste)/.test(text)) return "Logistique";
+  if (/(production|industrie|usinage|maintenance|qualite)/.test(text)) return "Industrie";
+  if (/(vente|commerce|tourisme|hotel|restauration|accueil)/.test(text)) return "Tourisme & commerce";
+  return "Autres services";
+}
+
+function getDepartmentCodeFromOffer(offer, feature) {
+  const departementRaw = offer?.lieuTravail?.codeDepartement || offer?.lieuTravail?.codePostal || "";
+  const clean = String(departementRaw).trim();
+  if (/^\d{2}/.test(clean)) {
+    return clean.slice(0, 2);
+  }
+  const cityKey = parseCityKey(offer?.lieuTravail?.libelle || feature?.properties?.city || "");
+  if (!cityKey) return "";
+  const cityDept = {
+    nantes: "44",
+    "saint herblain": "44",
+    reze: "44",
+    "la roche sur yon": "85",
+    angers: "49",
+    laval: "53",
+    "le mans": "72"
+  };
+  return cityDept[cityKey] || "";
+}
+
 function hexToRgb(hexColor) {
   const hex = (hexColor || "").replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
@@ -297,6 +362,26 @@ function showTooltip(event, feature) {
   tooltip.style.top = `${y}px`;
 }
 
+function showSectorTooltip(event, feature) {
+  ensureTooltip();
+  if (!tooltip || !feature?.properties) return;
+  const host = document.querySelector(".map-wrapper");
+  if (!host) return;
+  const rect = host.getBoundingClientRect();
+  const p = feature.properties;
+  tooltip.innerHTML = `
+    <span class="onboarding-tag is-active lumen-tooltip-top-tag" style="background:${escapeHtml(p.sectorColor || "#4EA1FF")};border-color:${escapeHtml(p.sectorColor || "#4EA1FF")};color:#081022;">${escapeHtml(p.dominantSector || "Secteur")}</span><br>
+    <strong>${escapeHtml(p.nom || `Département ${p.code || ""}`)}</strong><br>
+    Compétence dominante : ${escapeHtml(p.dominantSkill || "Non renseignée")}<br>
+    Valeur dominante : ${escapeHtml(p.dominantValue || "Non renseignée")}
+  `;
+  tooltip.style.display = "block";
+  const x = Math.max(12, Math.min(event.point.x + 18, rect.width - 320));
+  const y = Math.max(12, Math.min(event.point.y + 18, rect.height - 150));
+  tooltip.style.left = `${x}px`;
+  tooltip.style.top = `${y}px`;
+}
+
 function colorWithAlpha(hexColor, alpha = 1) {
   const hex = (hexColor || "").replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) return hexColor;
@@ -318,12 +403,16 @@ function getOfferMatchRatio(feature) {
 }
 
 function getGradientTargetHexByRatio(ratio) {
-  const base = currentViewMode === VIEW_MODES.VALUES ? VALUE_BASE_COLOR : SKILL_BASE_COLOR;
-  const midStop = 0.72;
-  if (ratio <= midStop) {
-    return mixHexColors(base, MID_COMPAT_COLOR, ratio / midStop);
-  }
-  return mixHexColors(MID_COMPAT_COLOR, HIGH_COMPAT_COLOR, (ratio - midStop) / (1 - midStop));
+  const palette = currentViewMode === VIEW_MODES.VALUES ? VALUE_COMPAT_PALETTE : SKILL_COMPAT_PALETTE;
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const index = Math.round(clamped * (palette.length - 1));
+  return palette[index] || palette[0];
+}
+
+function getSectorCompatibilityColorByRatio(ratio) {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const index = Math.round(clamped * (SKILL_COMPAT_PALETTE.length - 1));
+  return SKILL_COMPAT_PALETTE[index] || SKILL_COMPAT_PALETTE[0];
 }
 
 function parseOfferCoordinates(offer) {
@@ -414,6 +503,7 @@ function buildOfferFeature(offer) {
       city,
       offerDescription,
       offerUrl,
+      rawOfferId: offer?.id || "",
       dominantSkill: insights.dominantSkill,
       dominantValue: insights.dominantValue,
       skillScore: insights.dominantSkillScore,
@@ -647,6 +737,13 @@ function ensureGradientMarkerIcon(targetColor) {
 
 function refreshOffers() {
   if (!map || !map.getSource(SOURCES.offers)) return;
+  if (currentOfferViewMode === "sectorization") {
+    setOfferMarkersVisibility(false);
+    setCompatibilityGuidesVisibility(false);
+    refreshSectorizationFromOffers();
+    return;
+  }
+  setOfferMarkersVisibility(true);
   const filtered = getFilteredFeatures();
   const zoom = map.getZoom();
   const baseFeatures = currentOfferViewMode === "compatibility"
@@ -760,6 +857,191 @@ function addContextLabelsLayer() {
   });
 }
 
+function buildDepartmentSectorProfiles() {
+  const aggregates = new Map();
+  offersData.forEach((feature) => {
+    const rawOfferId = feature?.properties?.rawOfferId || "";
+    const rawOffer = offersRawById.get(rawOfferId) || {};
+    const departmentCode = getDepartmentCodeFromOffer(rawOffer, feature);
+    if (!departmentCode) return;
+    if (!aggregates.has(departmentCode)) {
+      aggregates.set(departmentCode, { sectorCounts: new Map(), skillCounts: new Map(), valueCounts: new Map() });
+    }
+    const bucket = aggregates.get(departmentCode);
+    const sector = inferDominantSectorFromOffer(rawOffer);
+    const skill = feature?.properties?.dominantSkill || "Compétence non renseignée";
+    const value = feature?.properties?.dominantValue || "Valeur non renseignée";
+    bucket.sectorCounts.set(sector, (bucket.sectorCounts.get(sector) || 0) + 1);
+    bucket.skillCounts.set(skill, (bucket.skillCounts.get(skill) || 0) + 1);
+    bucket.valueCounts.set(value, (bucket.valueCounts.get(value) || 0) + 1);
+  });
+
+  const pickTop = (counts, fallbackValue) => {
+    if (!(counts instanceof Map) || counts.size === 0) return fallbackValue;
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  };
+
+  const profiles = {};
+  const selectedSkillRefs = new Set((activeSkillFilters.length > 0 ? activeSkillFilters : selectedSkills).map((tag) => normalizeQuery(tag)).filter(Boolean));
+  const selectedValueRefs = new Set((activeValueFilters.length > 0 ? activeValueFilters : selectedValues).map((tag) => normalizeQuery(tag)).filter(Boolean));
+  const hasSkillRef = selectedSkillRefs.size > 0;
+  const hasValueRef = selectedValueRefs.size > 0;
+  const denominator = (hasSkillRef ? 1 : 0) + (hasValueRef ? 1 : 0) || 1;
+  Object.entries(FALLBACK_DEPARTMENT_PROFILES).forEach(([code, profile]) => {
+    const bucket = aggregates.get(code);
+    const dominantSector = pickTop(bucket?.sectorCounts, profile.sector);
+    const dominantSkill = pickTop(bucket?.skillCounts, profile.skill);
+    const dominantValue = pickTop(bucket?.valueCounts, profile.value);
+    const sectorSlug = toSectorSlug(dominantSector);
+    const skillHit = hasSkillRef ? selectedSkillRefs.has(normalizeQuery(dominantSkill)) : false;
+    const valueHit = hasValueRef ? selectedValueRefs.has(normalizeQuery(dominantValue)) : false;
+    const compatibilityRatio = (Number(skillHit) + Number(valueHit)) / denominator;
+    profiles[code] = {
+      dominantSector,
+      dominantSkill,
+      dominantValue,
+      sectorSlug,
+      sectorColor: getSectorCompatibilityColorByRatio(compatibilityRatio),
+      compatibilityRatio,
+      departmentLabel: dominantSector
+    };
+  });
+
+  return profiles;
+}
+
+function emitSectorizationState() {
+  const dominantSkills = [...sectorizationDominantSkills];
+  const dominantValues = [...sectorizationDominantValues];
+  window.dispatchEvent(new CustomEvent("lumen:sectorization-state", {
+    detail: {
+      mode: currentOfferViewMode,
+      dominantSkills,
+      dominantValues
+    }
+  }));
+}
+
+function buildSectorizationFeatureCollection() {
+  const profiles = buildDepartmentSectorProfiles();
+  sectorizationDominantSkills = new Set(Object.values(profiles).map((item) => normalizeQuery(item?.dominantSkill)).filter(Boolean));
+  sectorizationDominantValues = new Set(Object.values(profiles).map((item) => normalizeQuery(item?.dominantValue)).filter(Boolean));
+  const features = (Array.isArray(PDL_DEPARTMENTS_GEOJSON?.features) ? PDL_DEPARTMENTS_GEOJSON.features : [])
+    .map((feature) => {
+      const code = String(feature?.properties?.code || "");
+      const defaults = FALLBACK_DEPARTMENT_PROFILES[code] || {
+        sector: "Autres services",
+        skill: "Compétence non renseignée",
+        value: "Valeur non renseignée"
+      };
+      const profile = profiles[code] || {
+        dominantSector: defaults.sector,
+        dominantSkill: defaults.skill,
+        dominantValue: defaults.value,
+        sectorSlug: toSectorSlug(defaults.sector),
+        sectorColor: getSectorCompatibilityColorByRatio(0),
+        departmentLabel: defaults.sector
+      };
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+        nom: feature?.properties?.nom || "",
+          dominantSector: profile.dominantSector,
+          dominantSkill: profile.dominantSkill,
+          dominantValue: profile.dominantValue,
+          sectorSlug: profile.sectorSlug,
+          sectorColor: profile.sectorColor,
+          departmentLabel: profile.departmentLabel
+        }
+      };
+    });
+  return { type: "FeatureCollection", features };
+}
+
+function addSectorizationLayers() {
+  const initialVisibility = currentOfferViewMode === "sectorization" ? "visible" : "none";
+  map.addSource(SOURCES.sectorDepartments, {
+    type: "geojson",
+    data: buildSectorizationFeatureCollection()
+  });
+
+  map.addLayer({
+    id: LAYERS.sectorDepartmentsFill,
+    type: "fill",
+    source: SOURCES.sectorDepartments,
+    layout: { visibility: initialVisibility },
+    paint: {
+      "fill-color": ["coalesce", ["get", "sectorColor"], SKILL_COMPAT_PALETTE[0]],
+      "fill-opacity": 0.44
+    }
+  });
+
+  map.addLayer({
+    id: LAYERS.sectorDepartmentsLine,
+    type: "line",
+    source: SOURCES.sectorDepartments,
+    layout: { visibility: initialVisibility },
+    paint: {
+      "line-color": "rgba(130, 180, 235, 0.65)",
+      "line-width": 0.9,
+      "line-opacity": 0.62
+    }
+  });
+
+  map.addLayer({
+    id: LAYERS.sectorDepartmentsLabel,
+    type: "symbol",
+    source: SOURCES.sectorDepartments,
+    layout: {
+      visibility: initialVisibility,
+      "text-field": ["get", "departmentLabel"],
+      "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 7.8, 11, 9.4, 12, 11, 13],
+      "text-line-height": 1.2,
+      "symbol-placement": "point",
+      "text-allow-overlap": true,
+      "text-ignore-placement": true
+    },
+    paint: {
+      "text-color": "rgba(241, 247, 255, 0.98)",
+      "text-halo-color": "rgba(7, 12, 30, 0.95)",
+      "text-halo-width": 1.4
+    }
+  });
+
+  map.on("mouseenter", LAYERS.sectorDepartmentsFill, () => {
+    map.getCanvas().style.cursor = "pointer";
+  });
+  map.on("mouseleave", LAYERS.sectorDepartmentsFill, () => {
+    map.getCanvas().style.cursor = "";
+    hideTooltip();
+  });
+  map.on("mousemove", LAYERS.sectorDepartmentsFill, (event) => {
+    const feature = event.features?.[0];
+    showSectorTooltip(event, feature);
+  });
+}
+
+async function loadSectorizationData() {
+  if (!map) return;
+  try {
+    map.getSource(SOURCES.sectorDepartments)?.setData(buildSectorizationFeatureCollection());
+    emitSectorizationState();
+  } catch (error) {
+    console.warn("[Lumen] Impossible de charger la sectorisation :", error?.message || error);
+  }
+}
+
+function refreshSectorizationFromOffers() {
+  if (!map) return;
+  const departmentsSource = map.getSource(SOURCES.sectorDepartments);
+  if (departmentsSource) {
+    departmentsSource.setData(buildSectorizationFeatureCollection());
+    emitSectorizationState();
+  }
+}
+
 function addCompatibilityGuideLayers() {
   const center = MAP_CONFIG.nantesCenter;
   const rings = [
@@ -839,7 +1121,7 @@ function addCompatibilityGuideLayers() {
       "text-field": ["get", "label"],
       "text-size": 12,
       "text-offset": [0, 1.4],
-      "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"]
+      "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"]
     },
     paint: {
       "text-color": "rgba(228, 239, 255, 0.95)",
@@ -890,12 +1172,53 @@ function ensureCompatibilityCenterMarker() {
 
 function setGeographicLayersVisibility(isVisible) {
   const visibility = isVisible ? "visible" : "none";
-  const ids = ["osm-base", LAYERS.perimeterFill, LAYERS.perimeterLine, LAYERS.labels];
+  const ids = ["osm-base", LAYERS.labels];
   ids.forEach((layerId) => {
     if (map?.getLayer(layerId)) {
       map.setLayoutProperty(layerId, "visibility", visibility);
     }
   });
+}
+
+function setPerimeterVisibility(isVisible) {
+  const visibility = isVisible ? "visible" : "none";
+  [LAYERS.perimeterFill, LAYERS.perimeterLine].forEach((layerId) => {
+    if (map?.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, "visibility", visibility);
+    }
+  });
+}
+
+function setOfferMarkersVisibility(isVisible) {
+  if (!map?.getLayer(LAYERS.offersCircle)) return;
+  map.setLayoutProperty(LAYERS.offersCircle, "visibility", isVisible ? "visible" : "none");
+}
+
+function setSectorizationLayersVisibility(isVisible) {
+  const visibility = isVisible ? "visible" : "none";
+  [
+    LAYERS.sectorDepartmentsFill,
+    LAYERS.sectorDepartmentsLine,
+    LAYERS.sectorDepartmentsLabel
+  ].forEach((layerId) => {
+    if (map?.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, "visibility", visibility);
+    }
+  });
+  if (isVisible) {
+    if (map?.getLayer(LAYERS.sectorDepartmentsFill)) map.moveLayer(LAYERS.sectorDepartmentsFill);
+    if (map?.getLayer(LAYERS.sectorDepartmentsLine)) map.moveLayer(LAYERS.sectorDepartmentsLine);
+    if (map?.getLayer(LAYERS.sectorDepartmentsLabel)) map.moveLayer(LAYERS.sectorDepartmentsLabel);
+  }
+}
+
+function ensureSectorizationLayersReady() {
+  if (!map) return;
+  const hasSource = Boolean(map.getSource(SOURCES.sectorDepartments));
+  if (!hasSource) {
+    addSectorizationLayers();
+  }
+  loadSectorizationData();
 }
 
 function addOfferLayers() {
@@ -1003,6 +1326,7 @@ async function loadOffers() {
       }
     });
     const results = [...dedup.values()];
+    offersRawById = new Map(results.map((offer) => [offer?.id || "", offer]));
     offersData = results.map(buildOfferFeature).filter(Boolean);
     const precise = offersData.filter((feature) => feature.properties.locationSource === "precise").length;
     const fallback = offersData.length - precise;
@@ -1018,6 +1342,7 @@ async function loadOffers() {
     refreshOffers();
   } catch (error) {
     offersData = [];
+    offersRawById = new Map();
     offersMeta = {
       loading: false,
       loaded: true,
@@ -1099,7 +1424,7 @@ export function initMap(container) {
   container.innerHTML = "";
   ensureTooltip();
 
-  const bounds = getBoundsFromCircle(MAP_CONFIG.nantesCenter, MAP_CONFIG.hardLimitRadiusKm);
+  strictMapBounds = getBoundsFromCircle(MAP_CONFIG.nantesCenter, MAP_CONFIG.hardLimitRadiusKm);
   map = new maplibregl.Map({
     container,
     style: MAP_CONFIG.mapStyle,
@@ -1109,7 +1434,7 @@ export function initMap(container) {
     bearing: -15,
     minZoom: MAP_CONFIG.minZoom,
     maxZoom: MAP_CONFIG.maxZoom,
-    maxBounds: bounds,
+    maxBounds: strictMapBounds,
     attributionControl: false
   });
 
@@ -1118,9 +1443,12 @@ export function initMap(container) {
   map.on("load", () => {
     addPerimeterLayers();
     addContextLabelsLayer();
+    addSectorizationLayers();
     addCompatibilityGuideLayers();
     addOfferLayers();
+    loadSectorizationData();
     loadOffers();
+    setOfferViewMode(currentOfferViewMode);
     initLocalizeButton();
     enforceStrictRadius();
   });
@@ -1208,30 +1536,68 @@ export function setUserFilterActive(active) {
 }
 
 export function setOfferViewMode(mode) {
-  currentOfferViewMode = mode === "compatibility" ? "compatibility" : "localization";
+  const nextMode = mode === "compatibility" || mode === "sectorization" ? mode : "localization";
+  currentOfferViewMode = nextMode;
   const wrapper = document.querySelector(".map-wrapper");
   if (wrapper) {
     wrapper.classList.toggle("is-compatibility-mode", currentOfferViewMode === "compatibility");
+    wrapper.classList.toggle("is-sectorization-mode", currentOfferViewMode === "sectorization");
   }
   if (map) {
+    if (!map.isStyleLoaded()) {
+      map.once("load", () => setOfferViewMode(currentOfferViewMode));
+      return;
+    }
+    const smoothTransition = {
+      duration: VIEW_TRANSITION_DURATION_MS,
+      easing: (t) => 1 - ((1 - t) ** 3)
+    };
     if (currentOfferViewMode === "compatibility") {
+      map.setMaxBounds(strictMapBounds);
+      map.setMinZoom(MAP_CONFIG.minZoom);
       setGeographicLayersVisibility(false);
+      setPerimeterVisibility(false);
+      setSectorizationLayersVisibility(false);
       map.easeTo({
         center: MAP_CONFIG.nantesCenter,
         zoom: Math.max(map.getZoom(), 11.6),
         pitch: 0,
         bearing: 0,
-        duration: 350
+        ...smoothTransition
+      });
+    } else if (currentOfferViewMode === "sectorization") {
+      map.setMaxBounds(null);
+      map.setMinZoom(SECTOR_MIN_ZOOM);
+      ensureSectorizationLayersReady();
+      setGeographicLayersVisibility(true);
+      setPerimeterVisibility(false);
+      setSectorizationLayersVisibility(true);
+      setCompatibilityGuidesVisibility(false);
+      setOfferMarkersVisibility(false);
+      refreshSectorizationFromOffers();
+      map.easeTo({
+        center: SECTOR_VIEW_CENTER,
+        zoom: SECTOR_VIEW_ZOOM,
+        pitch: 0,
+        bearing: 0,
+        ...smoothTransition
       });
     } else {
+      map.setMaxBounds(strictMapBounds);
+      map.setMinZoom(MAP_CONFIG.minZoom);
       setGeographicLayersVisibility(true);
+      setPerimeterVisibility(true);
+      setSectorizationLayersVisibility(false);
       map.easeTo({
+        center: MAP_CONFIG.nantesCenter,
+        zoom: Math.max(MAP_CONFIG.initialZoom, map.getZoom()),
         pitch: isIsometricView ? 45 : 0,
         bearing: isIsometricView ? -15 : 0,
-        duration: 300
+        ...smoothTransition
       });
     }
   }
+  emitSectorizationState();
   refreshOffers();
 }
 
