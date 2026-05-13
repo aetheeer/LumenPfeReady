@@ -261,9 +261,11 @@ function inferDominantSectorFromOffer(offer) {
   const text = normalizeQuery([
     offer?.intitule,
     offer?.description,
+    offer?.romeLibelle,
+    offer?.appellationlibelle,
     offer?.entreprise?.nom
   ].filter(Boolean).join(" "));
-  if (!text) return "Autres services";
+  if (!text) return null;
   // Strict fallback keywords only when ROME is unavailable.
   if (/(informatique|logiciel|developpeur|developpement|data|cybersecurit|ux|ui design|numerique)/.test(text)) return "Numérique & services";
   if (/(infirm|soignant|medical|medic|sante|social|aide a domicile)/.test(text)) return "Santé";
@@ -274,7 +276,7 @@ function inferDominantSectorFromOffer(offer) {
   if (/(gestion|administratif|comptabil|support|rh|ressources humaines)/.test(text)) return "Support entreprise / gestion";
   if (/(btp|chantier|construction|macon|electricien|plombier)/.test(text)) return "BTP / construction";
   if (/(agricol|environnement|paysagiste|espaces verts)/.test(text)) return "Agriculture / environnement";
-  return "Autres services";
+  return null;
 }
 
 function getDepartmentCodeFromOffer(offer, feature) {
@@ -485,7 +487,7 @@ function buildOfferFeature(offer) {
   if (!located) return null;
   const { coordinates, source } = located;
 
-  const insights = inferOfferInsights(offer);
+  const insights = offer?._insights || inferOfferInsights(offer);
   const title = offer?.intitule || offer?.appellationlibelle || "Offre France Travail";
   const company = offer?.entreprise?.nom || "";
   const city = offer?.lieuTravail?.libelle || "";
@@ -654,21 +656,21 @@ function getFilteredFeatures() {
     ? offersData.filter((feature) => feature.properties.searchText.includes(query))
     : offersData;
 
-  const normalizedActiveModeFilters = (currentViewMode === VIEW_MODES.SKILLS ? activeSkillFilters : activeValueFilters)
+  // Uniquement les tags encore actifs dans le panneau (pas de repli sur la liste complète,
+  // sinon désactiver un tag ne filtre plus rien).
+  const tagsToMatch = (currentViewMode === VIEW_MODES.SKILLS ? activeSkillFilters : activeValueFilters)
     .map((tag) => normalizeQuery(tag))
     .filter(Boolean);
-  const primaryTags = (currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues)
-    .map((tag) => normalizeQuery(tag))
-    .filter(Boolean);
-  const tagsToMatch = normalizedActiveModeFilters.length > 0 ? normalizedActiveModeFilters : primaryTags;
 
   if (tagsToMatch.length === 0) {
     return searchFiltered;
   }
 
+  const activeDominantKey = currentViewMode === VIEW_MODES.SKILLS ? "dominantSkill" : "dominantValue";
+  const normalizedTagSet = new Set(tagsToMatch);
   return searchFiltered.filter((feature) => {
-    const searchText = feature?.properties?.searchText || "";
-    return tagsToMatch.some((tag) => searchText.includes(tag));
+    const dominantLabel = normalizeQuery(feature?.properties?.[activeDominantKey] || "");
+    return normalizedTagSet.has(dominantLabel);
   });
 }
 
@@ -678,10 +680,16 @@ function resolveFeatureColor(feature) {
 }
 
 function getFeatureMatchIndexes(feature) {
-  const text = feature?.properties?.searchText || "";
   const selected = currentViewMode === VIEW_MODES.SKILLS ? selectedSkills : selectedValues;
+  const activeList = currentViewMode === VIEW_MODES.SKILLS ? activeSkillFilters : activeValueFilters;
+  const activeSet = new Set(activeList.map((tag) => normalizeQuery(tag)).filter(Boolean));
+  const activeDominantKey = currentViewMode === VIEW_MODES.SKILLS ? "dominantSkill" : "dominantValue";
+  const dominantLabel = normalizeQuery(feature?.properties?.[activeDominantKey] || "");
   return selected
-    .map((tag, index) => ({ index, hit: text.includes(normalizeQuery(tag)) }))
+    .map((tag, index) => ({
+      index,
+      hit: activeSet.has(normalizeQuery(tag)) && normalizeQuery(tag) === dominantLabel
+    }))
     .filter((entry) => entry.hit)
     .slice(0, 3)
     .map((entry) => entry.index);
@@ -926,11 +934,17 @@ function buildDepartmentSectorProfiles() {
     }
     const bucket = aggregates.get(departmentCode);
     const sector = inferDominantSectorFromOffer(rawOffer);
-    const skill = feature?.properties?.dominantSkill || "Compétence non renseignée";
-    const value = feature?.properties?.dominantValue || "Valeur non renseignée";
-    bucket.sectorCounts.set(sector, (bucket.sectorCounts.get(sector) || 0) + 1);
-    bucket.skillCounts.set(skill, (bucket.skillCounts.get(skill) || 0) + 1);
-    bucket.valueCounts.set(value, (bucket.valueCounts.get(value) || 0) + 1);
+    const skill = feature?.properties?.dominantSkill || INSUFFICIENT_SKILL_LABEL;
+    const value = feature?.properties?.dominantValue || INSUFFICIENT_VALUE_LABEL;
+    if (sector) {
+      bucket.sectorCounts.set(sector, (bucket.sectorCounts.get(sector) || 0) + 1);
+    }
+    if (skill && skill !== INSUFFICIENT_SKILL_LABEL) {
+      bucket.skillCounts.set(skill, (bucket.skillCounts.get(skill) || 0) + 1);
+    }
+    if (value && value !== INSUFFICIENT_VALUE_LABEL) {
+      bucket.valueCounts.set(value, (bucket.valueCounts.get(value) || 0) + 1);
+    }
   });
 
   // Merge reliable department-level signals from the fetch layer itself.
@@ -978,8 +992,8 @@ function buildDepartmentSectorProfiles() {
   };
 
   const profiles = {};
-  const selectedSkillRefs = new Set((activeSkillFilters.length > 0 ? activeSkillFilters : selectedSkills).map((tag) => normalizeQuery(tag)).filter(Boolean));
-  const selectedValueRefs = new Set((activeValueFilters.length > 0 ? activeValueFilters : selectedValues).map((tag) => normalizeQuery(tag)).filter(Boolean));
+  const selectedSkillRefs = new Set(activeSkillFilters.map((tag) => normalizeQuery(tag)).filter(Boolean));
+  const selectedValueRefs = new Set(activeValueFilters.map((tag) => normalizeQuery(tag)).filter(Boolean));
   const hasSkillRef = selectedSkillRefs.size > 0;
   const hasValueRef = selectedValueRefs.size > 0;
   const denominator = (hasSkillRef ? 1 : 0) + (hasValueRef ? 1 : 0) || 1;
@@ -1473,6 +1487,7 @@ function addOfferLayers() {
 }
 
 async function loadOffers() {
+  const loadStartedAt = performance.now();
   offersMeta = {
     ...offersMeta,
     loading: true,
@@ -1493,11 +1508,20 @@ async function loadOffers() {
         })
       )
     );
+    let insightsDurationMs = 0;
     const merged = responses.flatMap((response, index) => {
       const requestedDepartment = requests[index]?.departement || "";
       const rawResults = Array.isArray(response?.resultats) ? response.resultats : [];
       return rawResults.map((offer) => ({
-        ...offer,
+        ...(function buildWithInsights() {
+          const insightStart = performance.now();
+          const insights = inferOfferInsights(offer);
+          insightsDurationMs += performance.now() - insightStart;
+          return {
+            ...offer,
+            _insights: insights
+          };
+        }()),
         _requestedDepartment: requestedDepartment
       }));
     });
@@ -1524,12 +1548,18 @@ async function loadOffers() {
         if (offerId && seenIds.has(offerId)) return;
         if (offerId) seenIds.add(offerId);
         const sector = inferDominantSectorFromOffer(offer);
-        const insights = inferOfferInsights(offer);
-        const skill = insights?.dominantSkill || "Compétence non renseignée";
-        const value = insights?.dominantValue || "Valeur non renseignée";
-        signal.sectorCounts.set(sector, (signal.sectorCounts.get(sector) || 0) + 1);
-        signal.skillCounts.set(skill, (signal.skillCounts.get(skill) || 0) + 1);
-        signal.valueCounts.set(value, (signal.valueCounts.get(value) || 0) + 1);
+        const insights = offer?._insights || inferOfferInsights(offer);
+        const skill = insights?.dominantSkill || INSUFFICIENT_SKILL_LABEL;
+        const value = insights?.dominantValue || INSUFFICIENT_VALUE_LABEL;
+        if (sector) {
+          signal.sectorCounts.set(sector, (signal.sectorCounts.get(sector) || 0) + 1);
+        }
+        if (skill && skill !== INSUFFICIENT_SKILL_LABEL) {
+          signal.skillCounts.set(skill, (signal.skillCounts.get(skill) || 0) + 1);
+        }
+        if (value && value !== INSUFFICIENT_VALUE_LABEL) {
+          signal.valueCounts.set(value, (signal.valueCounts.get(value) || 0) + 1);
+        }
       });
     });
     const dedup = new Map();
@@ -1552,6 +1582,12 @@ async function loadOffers() {
       precise,
       fallback
     };
+    const totalDurationMs = performance.now() - loadStartedAt;
+    console.info("[Lumen] loadOffers timings", {
+      totalMs: Math.round(totalDurationMs),
+      inferenceMs: Math.round(insightsDurationMs),
+      offers: results.length
+    });
     refreshOffers();
   } catch (error) {
     offersData = [];

@@ -10,11 +10,11 @@ import {
   setUserFilterActive,
   setOfferViewMode,
   setActiveTagFilters
-} from "./mapView.js?v=1031";
-import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1031";
-import { setViewMode } from './mapView.js?v=1031';
-import { VIEW_MODES } from './config.js?v=1031';
-import { Onboarding } from './onboarding.js?v=1031';
+} from "./mapView.js?v=1034";
+import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1034";
+import { setViewMode } from "./mapView.js?v=1034";
+import { VIEW_MODES } from "./config.js?v=1034";
+import { Onboarding } from "./onboarding.js?v=1034";
 
 const SESSION_KEY = "lumen.onboarding.session";
 
@@ -119,10 +119,12 @@ function renderTagList(host, tags, emptyText, kind, activeFilters, onToggle, sec
   });
 }
 
-function renderUserContextPanel(onboardingData) {
+function createUserContextPanel(onboardingData) {
   const data = onboardingData || parseSessionData();
   const skillsHost = document.getElementById("user-skills-list");
   const valuesHost = document.getElementById("user-values-list");
+  const skillsSection = skillsHost?.closest(".map-side-panel-section");
+  const valuesSection = valuesHost?.closest(".map-side-panel-section");
   const deadlineSection = document.getElementById("user-deadline-section");
   const deadlineHost = document.getElementById("user-deadline-list");
   const activeFilters = {
@@ -134,10 +136,43 @@ function renderUserContextPanel(onboardingData) {
     dominantSkills: new Set(),
     dominantValues: new Set()
   };
+  let listViewMode = VIEW_MODES.SKILLS;
+
+  const syncListPanelSections = () => {
+    const isSectorization = sectorizationState.mode === "sectorization";
+    if (isSectorization) {
+      if (skillsSection) {
+        skillsSection.hidden = false;
+        skillsSection.classList.remove("is-panel-section-hidden");
+      }
+      if (valuesSection) {
+        valuesSection.hidden = false;
+        valuesSection.classList.remove("is-panel-section-hidden");
+      }
+      return;
+    }
+    const hideSkills = listViewMode === VIEW_MODES.VALUES;
+    const hideValues = listViewMode === VIEW_MODES.SKILLS;
+    if (skillsSection) {
+      skillsSection.hidden = hideSkills;
+      skillsSection.classList.toggle("is-panel-section-hidden", hideSkills);
+    }
+    if (valuesSection) {
+      valuesSection.hidden = hideValues;
+      valuesSection.classList.toggle("is-panel-section-hidden", hideValues);
+    }
+  };
 
   const rerenderTags = () => {
+    syncListPanelSections();
     renderTagList(skillsHost, data?.skills || [], "Aucune compétence sélectionnée", "skills", activeFilters, toggleFilterTag, sectorizationState);
     renderTagList(valuesHost, data?.values || [], "Aucune valeur sélectionnée", "values", activeFilters, toggleFilterTag, sectorizationState);
+  };
+
+  const setListViewMode = (mode) => {
+    if (mode !== VIEW_MODES.SKILLS && mode !== VIEW_MODES.VALUES) return;
+    listViewMode = mode;
+    rerenderTags();
   };
 
   const applyActiveFilters = () => {
@@ -158,7 +193,9 @@ function renderUserContextPanel(onboardingData) {
 
   const isUrgent = data?.selectedProfile === "urgent";
   if (deadlineSection) {
-    deadlineSection.hidden = !isUrgent;
+    const showDeadline = Boolean(isUrgent);
+    deadlineSection.hidden = !showDeadline;
+    deadlineSection.classList.toggle("is-panel-section-hidden", !showDeadline);
   }
   if (isUrgent) {
     renderTagList(deadlineHost, data?.deadline ? [data.deadline] : [], "Aucun délai sélectionné", "deadline", activeFilters, toggleFilterTag, sectorizationState);
@@ -173,13 +210,14 @@ function renderUserContextPanel(onboardingData) {
 
   const panel = document.getElementById("user-context-panel");
   const collapseToggle = document.getElementById("user-context-toggle");
-  if (!panel || !collapseToggle || collapseToggle.dataset.bound === "true") return;
-
-  collapseToggle.addEventListener("click", () => {
-    const isCollapsed = panel.classList.toggle("is-collapsed");
-    collapseToggle.textContent = isCollapsed ? "⟩" : "⟨";
-    collapseToggle.setAttribute("aria-label", isCollapsed ? "Ouvrir le panneau" : "Replier le panneau");
-  });
+  if (panel && collapseToggle && collapseToggle.dataset.bound !== "true") {
+    collapseToggle.addEventListener("click", () => {
+      const isCollapsed = panel.classList.toggle("is-collapsed");
+      collapseToggle.textContent = isCollapsed ? "⟩" : "⟨";
+      collapseToggle.setAttribute("aria-label", isCollapsed ? "Ouvrir le panneau" : "Replier le panneau");
+    });
+    collapseToggle.dataset.bound = "true";
+  }
 
   setUserFilterActive(true);
   applyActiveFilters();
@@ -195,7 +233,11 @@ function renderUserContextPanel(onboardingData) {
     window.__lumenSectorizationStateBound = true;
   }
 
-  collapseToggle.dataset.bound = "true";
+  return { setListViewMode };
+}
+
+function renderUserContextPanel(onboardingData) {
+  return createUserContextPanel(onboardingData);
 }
 
 function openOnboarding(onComplete) {
@@ -231,7 +273,7 @@ function initializeApp(onboardingData) {
   initMap(mapRoot);
   setOfferViewMode("localization");
   setSkillsValuesToggleDisabled(false);
-  renderUserContextPanel(onboardingData);
+  const userContextPanel = createUserContextPanel(onboardingData);
 
   const controls = initControls(document);
   controls.onZoomIn(() => {
@@ -255,6 +297,7 @@ function initializeApp(onboardingData) {
       setSearchQuery('', true);
       // Change mode (this will trigger animated render with all spikes)
       setViewMode(mode);
+      userContextPanel.setListViewMode(mode);
       updateCompatibilityLegend(mode);
     }
   });
