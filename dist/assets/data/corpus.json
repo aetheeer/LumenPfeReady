@@ -12,9 +12,7 @@
         "Relation client",
         "Accueil du public",
         "Négociation",
-        "Médiation",
-        "Pédagogie",
-        "Animation de groupe"
+        "Médiation"
       ]
     },
     {
@@ -58,7 +56,6 @@
         "Argumentation",
         "Fidélisation",
         "Gestion de caisse",
-        "Merchandising",
         "Sens du service",
         "Gestion des réclamations",
         "Prospection",
@@ -75,19 +72,19 @@
         "Approvisionnement",
         "Gestion des stocks",
         "Préparation de commandes",
-        "Réception et contrôle des livraisons",
         "Expédition",
         "Traçabilité",
         "Inventaire",
         "Coordination d'équipe terrain",
-        "Application des procédures qualité"
+        "Application des procédures qualité",
+        "Livraison & tournées"
       ]
     },
     {
       "title": "Compétences techniques et manuelles",
       "tags": [
         "Montage / assemblage",
-        "Maintenance de premier niveau",
+        "Maintenance",
         "Diagnostic de panne simple",
         "Bricolage",
         "Mécanique de base",
@@ -97,7 +94,7 @@
         "Préparation de matériel",
         "Travail en atelier",
         "Travail en extérieur",
-        "Application des consignes de sécurité",
+        "HSE",
         "Petites réparations"
       ]
     },
@@ -124,14 +121,125 @@
         "Culture numérique",
         "Création de contenus",
         "Design graphique",
+        "UI Design",
+        "UX Design",
+        "Design industriel",
+        "Design system",
+        "Wireframing",
+        "Prototypage",
+        "Recherche utilisateur",
+        "Tests utilisateurs",
         "Photographie / vidéo",
         "Marketing",
         "Communication digitale",
         "Analyse de données",
         "Développement web",
         "Programmation",
+        "Réseau",
         "Utilisation d'outils no-code",
-        "Langues étrangères"
+        "Langues étrangères",
+        "Prompts IA",
+        "Assistants IA au travail",
+        "Automatisation avec l'IA"
+      ]
+    },
+    {
+      "title": "Hôtellerie & restauration",
+      "tags": [
+        "Accueil en hôtellerie",
+        "Préparation chambres & espaces",
+        "Réception hôtellerie",
+        "Service en salle & caisse",
+        "Cuisine aide & préparation",
+        "Restauration rapide",
+        "Hygiène alimentaire (HACCP)",
+        "Gestion de bar"
+      ]
+    },
+    {
+      "title": "Commerce magasin & distribution",
+      "tags": [
+        "Vente-conseil",
+        "Merchandising",
+        "Prévention vol magasin"
+      ]
+    },
+    {
+      "title": "Événementiel, scénographie et spectacle",
+      "tags": [
+        "Organisation d'événements",
+        "Logistique sur site",
+        "Accueil événements",
+        "Sécurité",
+        "Son, lumière & captation",
+        "Scénographie",
+        "Signalétique",
+        "Coordination prestataires"
+      ]
+    },
+    {
+      "title": "Architecture, espace construit et patrimoine",
+      "tags": [
+        "Conception architecturale",
+        "Lecture plans bâtiment",
+        "Maquettes & visualisation archi",
+        "Modélisation BIM",
+        "Design d'intérieur",
+        "Patrimoine & réhabilitation",
+        "Suivi chantier BTP"
+      ]
+    },
+    {
+      "title": "Santé, médico-social et qualité des parcours",
+      "tags": [
+        "Parcours de soins",
+        "Hygiène & prévention",
+        "Dossier patient",
+        "Télésoins",
+        "Handicap & autonomie",
+        "Médiation santé / médico-social",
+        "Éducation thérapeutique"
+      ]
+    },
+    {
+      "title": "Arts, culture et médiation artistique",
+      "tags": [
+        "Arts plastiques",
+        "Illustration",
+        "Conservation musée",
+        "Scénographie d'exposition",
+        "Médiation & ateliers",
+        "Danse & théâtre",
+        "Musique en groupe",
+        "Montage d'exposition"
+      ]
+    },
+    {
+      "title": "RSE, environnement et durabilité opérationnelle",
+      "tags": [
+        "Bilan carbone",
+        "Reporting RSE",
+        "Achats responsables",
+        "Éco-conception",
+        "Déchets & recyclage",
+        "Énergie & eau",
+        "Économie circulaire",
+        "Biodiversité",
+        "Qualité de l'environnement",
+        "Green IT",
+        "Concertation",
+        "Fournisseurs & droits humains",
+        "Projets de territoire",
+        "Diversité & inclusion"
+      ]
+    },
+    {
+      "title": "Industrie, manutention & production",
+      "tags": [
+        "Manutention & chargement",
+        "Contrôle qualité pièces",
+        "Lecture gamme / mode opératoire",
+        "Réglage poste production"
       ]
     }
   ],
@@ -166,7 +274,9 @@
         "Sens",
         "Éthique",
         "Durabilité",
-        "Engagement"
+        "Engagement",
+        "Respect du vivant",
+        "Justice sociale et équité"
       ]
     },
     {
@@ -181,6 +291,15 @@
         "Rémunération",
         "Avantages",
         "Perspectives d'avenir"
+      ]
+    },
+    {
+      "title": "Innovation et numérique au travail",
+      "tags": [
+        "Curiosité pour les nouveaux outils",
+        "Usage responsable de l'IA",
+        "Ouverture au changement technologique",
+        "Intérêt pour l'automatisation au service des équipes"
       ]
     }
   ]

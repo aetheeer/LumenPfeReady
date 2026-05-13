@@ -11,9 +11,7 @@ export const SKILL_CATEGORIES = [
       "Relation client",
       "Accueil du public",
       "Négociation",
-      "Médiation",
-      "Pédagogie",
-      "Animation de groupe"
+      "Médiation"
     ]
   },
   {
@@ -57,7 +55,6 @@ export const SKILL_CATEGORIES = [
       "Argumentation",
       "Fidélisation",
       "Gestion de caisse",
-      "Merchandising",
       "Sens du service",
       "Gestion des réclamations",
       "Prospection",
@@ -74,19 +71,19 @@ export const SKILL_CATEGORIES = [
       "Approvisionnement",
       "Gestion des stocks",
       "Préparation de commandes",
-      "Réception et contrôle des livraisons",
       "Expédition",
       "Traçabilité",
       "Inventaire",
       "Coordination d'équipe terrain",
-      "Application des procédures qualité"
+      "Application des procédures qualité",
+      "Livraison & tournées"
     ]
   },
   {
     title: "Compétences techniques et manuelles",
     tags: [
       "Montage / assemblage",
-      "Maintenance de premier niveau",
+      "Maintenance",
       "Diagnostic de panne simple",
       "Bricolage",
       "Mécanique de base",
@@ -96,7 +93,7 @@ export const SKILL_CATEGORIES = [
       "Préparation de matériel",
       "Travail en atelier",
       "Travail en extérieur",
-      "Application des consignes de sécurité",
+      "HSE",
       "Petites réparations"
     ]
   },
@@ -137,8 +134,107 @@ export const SKILL_CATEGORIES = [
       "Analyse de données",
       "Développement web",
       "Programmation",
+      "Réseau",
       "Utilisation d'outils no-code",
-      "Langues étrangères"
+      "Langues étrangères",
+      "Prompts IA",
+      "Assistants IA au travail",
+      "Automatisation avec l'IA"
+    ]
+  },
+  {
+    title: "Hôtellerie & restauration",
+    tags: [
+      "Accueil en hôtellerie",
+      "Préparation chambres & espaces",
+      "Réception hôtellerie",
+      "Service en salle & caisse",
+      "Cuisine aide & préparation",
+      "Restauration rapide",
+      "Hygiène alimentaire (HACCP)",
+      "Gestion de bar"
+    ]
+  },
+  {
+    title: "Commerce magasin & distribution",
+    tags: ["Vente-conseil", "Merchandising", "Prévention vol magasin"]
+  },
+  {
+    title: "Événementiel, scénographie et spectacle",
+    tags: [
+      "Organisation d'événements",
+      "Logistique sur site",
+      "Accueil événements",
+      "Sécurité",
+      "Son, lumière & captation",
+      "Scénographie",
+      "Signalétique",
+      "Coordination prestataires"
+    ]
+  },
+  {
+    title: "Architecture, espace construit et patrimoine",
+    tags: [
+      "Conception architecturale",
+      "Lecture plans bâtiment",
+      "Maquettes & visualisation archi",
+      "Modélisation BIM",
+      "Design d'intérieur",
+      "Patrimoine & réhabilitation",
+      "Suivi chantier BTP"
+    ]
+  },
+  {
+    title: "Santé, médico-social et qualité des parcours",
+    tags: [
+      "Parcours de soins",
+      "Hygiène & prévention",
+      "Dossier patient",
+      "Télésoins",
+      "Handicap & autonomie",
+      "Médiation santé / médico-social",
+      "Éducation thérapeutique"
+    ]
+  },
+  {
+    title: "Arts, culture et médiation artistique",
+    tags: [
+      "Arts plastiques",
+      "Illustration",
+      "Conservation musée",
+      "Scénographie d'exposition",
+      "Médiation & ateliers",
+      "Danse & théâtre",
+      "Musique en groupe",
+      "Montage d'exposition"
+    ]
+  },
+  {
+    title: "RSE, environnement et durabilité opérationnelle",
+    tags: [
+      "Bilan carbone",
+      "Reporting RSE",
+      "Achats responsables",
+      "Éco-conception",
+      "Déchets & recyclage",
+      "Énergie & eau",
+      "Économie circulaire",
+      "Biodiversité",
+      "Qualité de l'environnement",
+      "Green IT",
+      "Concertation",
+      "Fournisseurs & droits humains",
+      "Projets de territoire",
+      "Diversité & inclusion"
+    ]
+  },
+  {
+    title: "Industrie, manutention & production",
+    tags: [
+      "Manutention & chargement",
+      "Contrôle qualité pièces",
+      "Lecture gamme / mode opératoire",
+      "Réglage poste production"
     ]
   }
 ];
@@ -174,7 +270,9 @@ export const VALUE_CATEGORIES = [
       "Sens",
       "Éthique",
       "Durabilité",
-      "Engagement"
+      "Engagement",
+      "Respect du vivant",
+      "Justice sociale et équité"
     ]
   },
   {
@@ -189,6 +287,15 @@ export const VALUE_CATEGORIES = [
       "Rémunération",
       "Avantages",
       "Perspectives d'avenir"
+    ]
+  },
+  {
+    title: "Innovation et numérique au travail",
+    tags: [
+      "Curiosité pour les nouveaux outils",
+      "Usage responsable de l'IA",
+      "Ouverture au changement technologique",
+      "Intérêt pour l'automatisation au service des équipes"
     ]
   }
 ];
@@ -216,8 +323,16 @@ const SKILL_CATEGORY_DEFAULT_LEARNABILITY = [
   "medium", // Compétences commerciales et service
   "medium", // Compétences logistiques et opérationnelles
   "medium", // Compétences techniques et manuelles (métier / « vraie formation » type CAP)
-  "easy", // Compétences d'accompagnement, éducation et soin (savoir-être + relation d'aide)
-  "medium" // Compétences numériques, analyse et création
+  "easy", // Compétences d'accompagnement, éducation et soin
+  "medium", // Compétences numériques, analyse et création
+  "medium", // Hôtellerie & restauration
+  "medium", // Commerce magasin & distribution
+  "medium", // Événementiel, scénographie et spectacle
+  "medium", // Architecture, espace construit et patrimoine
+  "medium", // Santé, médico-social et qualité des parcours
+  "medium", // Arts, culture et médiation artistique
+  "medium", // RSE, environnement et durabilité opérationnelle
+  "medium" // Industrie, manutention & production
 ];
 
 function buildBaseLearnabilityByTag() {
@@ -250,20 +365,29 @@ const EASY_LEARNABILITY_OVERRIDES = new Set([
   "Saisie de données",
   "Préparation de commandes",
   "Expédition",
-  "Réception et contrôle des livraisons",
   "Inventaire",
   "Gestion de caisse",
   "Merchandising",
+  "Vente-conseil",
   "Sens du service",
   "Bricolage",
   "Petites réparations",
   "Entretien des locaux",
-  "Application des consignes de sécurité",
+  "HSE",
+  "Maintenance",
   "Préparation de matériel",
   "Recherche d'information",
   "Culture numérique",
   "Utilisation d'outils no-code",
-  "Application des procédures qualité"
+  "Application des procédures qualité",
+  "Prompts IA",
+  "Assistants IA au travail",
+  "Diversité & inclusion",
+  "Projets de territoire",
+  "Livraison & tournées",
+  "Manutention & chargement",
+  "Cuisine aide & préparation",
+  "Prévention vol magasin"
 ]);
 
 /**

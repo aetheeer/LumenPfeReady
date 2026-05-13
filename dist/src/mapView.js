@@ -30,6 +30,8 @@ let selectedSkills = [];
 let selectedValues = [];
 let activeSkillFilters = [];
 let activeValueFilters = [];
+/** Mode compatibilité : vivier figé côté compétences pour réutiliser les mêmes offres en vue Valeurs. */
+let compatibilitySkillOfferIds = null;
 let sectorizationDominantSkills = new Set();
 let sectorizationDominantValues = new Set();
 let lastSectorizationDataSignature = "";
@@ -777,14 +779,20 @@ function passesUrgentRadiusFilter(feature) {
   return haversineKm(urgentUserAnchor, [lng, lat]) <= URGENT_SEARCH_RADIUS_KM;
 }
 
-function getFilteredFeatures() {
+function stableOfferFeatureId(feature) {
+  const p = feature?.properties;
+  return String(p?.offerId || p?.rawOfferId || p?.overlapKey || "").trim();
+}
+
+function getFilteredFeatures(options = {}) {
+  const restrictToOfferIds = options.restrictToOfferIds;
   const query = normalizeQuery(searchQuery);
   const searchFiltered = query
     ? offersData.filter((feature) => feature.properties.searchText.includes(query))
     : offersData;
 
-  // Vivier d'offres toujours aligné sur les compétences : en vue Valeurs on réaffiche les mêmes
-  // offres qu'en vue Compétences, en ne changeant que la lecture compatibilité (valeurs / gradient).
+  // Vivier d'offres aligné sur les compétences ; en vue Valeurs on restreint au même ensemble
+  // (restrictToOfferIds) tout en réappliquant recherche / urgence / filtre compétence sur les données à jour.
   const normalizedSkillTags = (activeSkillFilters.length > 0 ? activeSkillFilters : selectedSkills)
     .map((tag) => normalizeQuery(tag))
     .filter(Boolean);
@@ -794,6 +802,10 @@ function getFilteredFeatures() {
   }
 
   return searchFiltered.filter((feature) => {
+    if (restrictToOfferIds && restrictToOfferIds.size > 0) {
+      const oid = stableOfferFeatureId(feature);
+      if (!oid || !restrictToOfferIds.has(oid)) return false;
+    }
     const blob = feature?.properties?.skillMatchText || "";
     const skillMatch = normalizedSkillTags.some((tag) => blob.includes(tag));
 
@@ -903,7 +915,23 @@ function refreshOffers() {
     return;
   }
   setOfferMarkersVisibility(true);
-  const filtered = getFilteredFeatures();
+  let filtered = getFilteredFeatures(
+    currentOfferViewMode === "compatibility" &&
+      currentViewMode === VIEW_MODES.VALUES &&
+      compatibilitySkillOfferIds &&
+      compatibilitySkillOfferIds.size > 0
+      ? { restrictToOfferIds: compatibilitySkillOfferIds }
+      : {}
+  );
+
+  if (currentOfferViewMode === "compatibility") {
+    if (currentViewMode === VIEW_MODES.SKILLS) {
+      compatibilitySkillOfferIds = new Set(filtered.map(stableOfferFeatureId).filter(Boolean));
+    }
+  } else {
+    compatibilitySkillOfferIds = null;
+  }
+
   const zoom = map.getZoom();
   const baseFeatures = currentOfferViewMode === "compatibility"
     ? buildCompatibilityFeatures(filtered)
@@ -1800,6 +1828,7 @@ async function loadOffers() {
     offersRevision += 1;
     offersRawById = new Map(results.map((offer) => [offer?.id || "", offer]));
     offersData = results.map(buildOfferFeature).filter(Boolean);
+    compatibilitySkillOfferIds = null;
     const precise = offersData.filter((feature) => feature.properties.locationSource === "precise").length;
     const fallback = offersData.length - precise;
     offersMeta = {
@@ -1814,6 +1843,7 @@ async function loadOffers() {
     refreshOffers();
   } catch (error) {
     offersData = [];
+    compatibilitySkillOfferIds = null;
     offersRevision += 1;
     offersRawById = new Map();
     departmentOfferSignals = new Map();
@@ -2102,6 +2132,7 @@ export function setUserContext(context = {}) {
     }
   }
   document.querySelector(".map-wrapper")?.classList.toggle("is-urgent-profile", Boolean(urgentProfileActive));
+  compatibilitySkillOfferIds = null;
   refreshOffers();
   syncPdlFocusLayerVisibility();
 }

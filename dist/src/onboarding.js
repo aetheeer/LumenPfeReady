@@ -1,5 +1,13 @@
 import { SKILL_CATEGORIES, VALUE_CATEGORIES } from "./corpus.js";
 
+function normalizeOnboardingSearch(value) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 const DEADLINE_TAGS = [
   "Sous 1 mois", "Sous 2 mois", "Sous 3 mois", "Sous 6 mois", "Sous 12 mois"
 ];
@@ -59,6 +67,8 @@ export class Onboarding {
     this.steps = getStepsForProfile(null);
     this.lockScrollY = 0;
     this.sessionStorageKey = "lumen.onboarding.session";
+    this.skillsFilter = "";
+    this.valuesFilter = "";
   }
 
   init() {
@@ -123,6 +133,8 @@ export class Onboarding {
           <p class="onboarding-description" id="onboarding-description"></p>
           <p class="onboarding-step-label" id="onboarding-step-label"></p>
         </div>
+
+        <div class="onboarding-tags-toolbar" id="onboarding-tags-toolbar" hidden></div>
 
         <div class="onboarding-body">
           <div class="onboarding-stage" id="onboarding-stage"></div>
@@ -270,29 +282,138 @@ export class Onboarding {
     return rowsContainer;
   }
 
-  renderCategorizedTags(stageContainer, categories, type) {
+  filterCategoriesForSearch(categories, query) {
+    const q = normalizeOnboardingSearch(query);
+    if (!q) {
+      return categories.map((c) => ({ ...c, tags: [...c.tags] }));
+    }
+    const tokens = q
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 1);
+    if (tokens.length === 0) {
+      return categories.map((c) => ({ ...c, tags: [...c.tags] }));
+    }
+    return categories
+      .map((cat) => {
+        const titleNorm = normalizeOnboardingSearch(cat.title);
+        const tagMatches = cat.tags.filter((tag) => {
+          const blob = normalizeOnboardingSearch(`${cat.title} ${tag}`);
+          return tokens.every((tok) => blob.includes(tok));
+        });
+        if (tagMatches.length > 0) {
+          return { ...cat, tags: tagMatches };
+        }
+        if (tokens.every((tok) => titleNorm.includes(tok))) {
+          return { ...cat, tags: [...cat.tags] };
+        }
+        return { ...cat, tags: [] };
+      })
+      .filter((cat) => cat.tags.length > 0);
+  }
+
+  renderCategorizedTags(stageContainer, toolbarContainer, categories, type) {
+    const filterKey = type === STEP_TYPES.SKILLS ? "skillsFilter" : "valuesFilter";
+    const keepSearchFocus = Boolean(document.activeElement?.closest?.(".onboarding-tag-search-row"));
+
+    toolbarContainer.innerHTML = "";
     stageContainer.innerHTML = "";
-    const categoriesContainer = document.createElement("div");
-    categoriesContainer.className = "onboarding-categories";
+    const query = this[filterKey] || "";
+    const filtered = this.filterCategoriesForSearch(categories, query);
 
-    categories.forEach((category) => {
-      const section = document.createElement("section");
-      section.className = "onboarding-category";
+    const row = document.createElement("div");
+    row.className = "onboarding-tag-search-row";
 
-      const title = document.createElement("h3");
-      title.className = "onboarding-category-title";
-      title.textContent = category.title;
+    const searchWrap = document.createElement("div");
+    searchWrap.className = "onboarding-tag-search";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.className = "onboarding-tag-search-input";
+    input.setAttribute("enterkeyhint", "search");
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute(
+      "aria-label",
+      type === STEP_TYPES.SKILLS ? "Recherche dans les compétences" : "Recherche dans les valeurs"
+    );
+    input.placeholder =
+      type === STEP_TYPES.SKILLS
+        ? "Rechercher une compétence"
+        : "Rechercher une valeur";
+    input.value = query;
+    input.addEventListener("input", (e) => {
+      this[filterKey] = e.target.value;
+      this.renderCategorizedTags(stageContainer, toolbarContainer, categories, type);
+    });
+    searchWrap.appendChild(input);
 
-      const slider = document.createElement("div");
-      slider.className = "onboarding-category-slider";
-      slider.appendChild(this.renderTagRows(category.tags, type));
-
-      section.appendChild(title);
-      section.appendChild(slider);
-      categoriesContainer.appendChild(section);
+    const selectedSet = type === STEP_TYPES.SKILLS ? this.selectedSkills : this.selectedValues;
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.className = "onboarding-tag-reset";
+    resetBtn.textContent = "Réinitialiser";
+    resetBtn.disabled = selectedSet.size === 0;
+    resetBtn.setAttribute(
+      "aria-label",
+      type === STEP_TYPES.SKILLS
+        ? "Réinitialiser les compétences sélectionnées"
+        : "Réinitialiser les valeurs sélectionnées"
+    );
+    resetBtn.addEventListener("click", () => {
+      if (type === STEP_TYPES.SKILLS) {
+        this.selectedSkills.clear();
+      } else {
+        this.selectedValues.clear();
+      }
+      this.persistSessionData();
+      this.render();
     });
 
-    stageContainer.appendChild(categoriesContainer);
+    row.appendChild(searchWrap);
+    row.appendChild(resetBtn);
+    toolbarContainer.appendChild(row);
+
+    const categoriesHost = document.createElement("div");
+    categoriesHost.className = "onboarding-categories";
+
+    if (filtered.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "onboarding-tag-search-empty";
+      empty.textContent =
+        "Aucun résultat pour cette recherche. Essayez un autre terme ou effacez le champ.";
+      categoriesHost.appendChild(empty);
+    } else {
+      filtered.forEach((category) => {
+        const section = document.createElement("section");
+        section.className = "onboarding-category";
+
+        const title = document.createElement("h3");
+        title.className = "onboarding-category-title";
+        title.textContent = category.title;
+
+        const slider = document.createElement("div");
+        slider.className = "onboarding-category-slider";
+        slider.appendChild(this.renderTagRows(category.tags, type));
+
+        section.appendChild(title);
+        section.appendChild(slider);
+        categoriesHost.appendChild(section);
+      });
+    }
+
+    stageContainer.appendChild(categoriesHost);
+
+    if (keepSearchFocus) {
+      const inp = toolbarContainer.querySelector(".onboarding-tag-search-input");
+      if (inp) {
+        inp.focus();
+        const len = inp.value.length;
+        try {
+          inp.setSelectionRange(len, len);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
   }
 
   renderDeadlineTags(stageContainer, tags, type) {
@@ -374,6 +495,7 @@ export class Onboarding {
     const titleEl = this.container.querySelector("#onboarding-title");
     const descEl = this.container.querySelector("#onboarding-description");
     const helperEl = this.container.querySelector("#onboarding-step-label");
+    const tagsToolbar = this.container.querySelector("#onboarding-tags-toolbar");
     const stageContainer = this.container.querySelector("#onboarding-stage");
     const contentRoot = this.container.querySelector(".onboarding-content");
     const backBtn = this.container.querySelector("#onboarding-back");
@@ -396,17 +518,23 @@ export class Onboarding {
     );
 
     stageContainer.innerHTML = "";
+    if (tagsToolbar) {
+      tagsToolbar.innerHTML = "";
+      tagsToolbar.hidden = true;
+    }
 
     if (step.type === STEP_TYPES.PROFILE) {
       this.renderProfileOptions(stageContainer);
     }
 
-    if (step.type === STEP_TYPES.SKILLS) {
-      this.renderCategorizedTags(stageContainer, SKILL_CATEGORIES, STEP_TYPES.SKILLS);
+    if (step.type === STEP_TYPES.SKILLS && tagsToolbar) {
+      tagsToolbar.hidden = false;
+      this.renderCategorizedTags(stageContainer, tagsToolbar, SKILL_CATEGORIES, STEP_TYPES.SKILLS);
     }
 
-    if (step.type === STEP_TYPES.VALUES) {
-      this.renderCategorizedTags(stageContainer, VALUE_CATEGORIES, STEP_TYPES.VALUES);
+    if (step.type === STEP_TYPES.VALUES && tagsToolbar) {
+      tagsToolbar.hidden = false;
+      this.renderCategorizedTags(stageContainer, tagsToolbar, VALUE_CATEGORIES, STEP_TYPES.VALUES);
     }
 
     if (step.type === STEP_TYPES.DEADLINE) {

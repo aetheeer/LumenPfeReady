@@ -149,10 +149,10 @@ export function initMapSearch(onSearch) {
   // Update placeholder based on current view mode
   const updatePlaceholder = (mode) => {
     if (mode === VIEW_MODES.SKILLS) {
-      searchInput.placeholder = 'Rechercher une compétence...';
+      searchInput.placeholder = 'Rechercher une compétence';
       searchInput.setAttribute('aria-label', 'Rechercher une compétence');
     } else if (mode === VIEW_MODES.VALUES) {
-      searchInput.placeholder = 'Rechercher une valeur...';
+      searchInput.placeholder = 'Rechercher une valeur';
       searchInput.setAttribute('aria-label', 'Rechercher une valeur');
     }
   };

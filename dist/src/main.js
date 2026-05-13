@@ -13,10 +13,10 @@ import {
   setViewMode,
   getViewMode,
   startUrgentLocationFlow
-} from "./mapView.js?v=1048";
-import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1048";
-import { VIEW_MODES } from './config.js?v=1048';
-import { Onboarding } from './onboarding.js?v=1048';
+} from "./mapView.js?v=1054";
+import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1054";
+import { VIEW_MODES } from './config.js?v=1054';
+import { Onboarding } from './onboarding.js?v=1054';
 
 const SESSION_KEY = "lumen.onboarding.session";
 
@@ -323,8 +323,6 @@ function initializeApp(onboardingData) {
     if (isUrgentProfile) return;
     if (mode === VIEW_MODES.SKILLS || mode === VIEW_MODES.VALUES) {
       setSearchQuery('', true);
-      window.__lumenUserPanel?.resetFiltersToFullSelection();
-      // Change mode (this will trigger animated render with all spikes)
       setViewMode(mode);
       updateCompatibilityLegend(mode);
       syncContextPanelSections(mode, lastOfferViewModeForPanel, false);

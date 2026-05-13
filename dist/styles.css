@@ -1128,6 +1128,107 @@ body {
   gap: 0.6rem;
 }
 
+.onboarding-tags-toolbar {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: min(960px, calc(100% - 0.25rem));
+  margin: 0 auto;
+  padding: 0 0.15rem 0.55rem;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 2;
+}
+
+.onboarding-tag-search-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.onboarding-tag-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.onboarding-tag-reset {
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin: 0;
+  padding: 0.62rem 0.85rem;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(248, 250, 255, 0.88);
+  font-size: 0.9rem;
+  font-family: var(--font-main);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+  transition: border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+}
+
+.onboarding-tag-reset:hover:not(:disabled) {
+  border-color: rgba(138, 180, 255, 0.38);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.onboarding-tag-reset:focus-visible {
+  border-color: rgba(138, 180, 255, 0.48);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.onboarding-tag-reset:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.onboarding-tag-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(248, 250, 255, 0.92);
+  font-size: 0.95rem;
+  font-family: var(--font-main);
+  padding: 0.62rem 0.95rem;
+  outline: none;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.onboarding-tag-search-input::placeholder {
+  color: rgba(200, 210, 235, 0.42);
+}
+
+.onboarding-tag-search-input:focus {
+  border-color: rgba(138, 180, 255, 0.48);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.onboarding-tag-search-empty {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(210, 220, 245, 0.52);
+  text-align: center;
+}
+
+.onboarding-content.is-tags-step .onboarding-description {
+  font-size: clamp(0.88rem, 2.2vw, 1rem);
+  line-height: 1.4;
+  color: rgba(220, 228, 248, 0.62);
+  max-width: min(36rem, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .onboarding-categories {
   margin-top: 0;
   display: flex;
@@ -1156,7 +1257,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(200, 210, 235, 0.42);
+  color: rgba(210, 218, 242, 0.95);
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   padding-bottom: 0.45rem;
   margin: 0 0 0.15rem;
@@ -1322,16 +1423,19 @@ body.onboarding-lock {
   margin: 0.5rem auto 0;
 }
 
-.onboarding-content.is-profile-step {
+.onboarding-content.is-profile-step,
+.onboarding-content.is-tags-step {
   padding-top: clamp(0.35rem, 1.2vh, 0.65rem);
 }
 
-.onboarding-content.is-profile-step .onboarding-header {
+.onboarding-content.is-profile-step .onboarding-header,
+.onboarding-content.is-tags-step .onboarding-header {
   width: 100%;
   max-width: 720px;
-  margin: 0 auto;
+  margin-left: auto;
+  margin-right: auto;
   margin-top: clamp(1.75rem, 6.5vh, 3.75rem);
-  padding-bottom: 0.4rem;
+  padding: 0.2rem 0 0.4rem;
 }
 
 .onboarding-content.is-profile-step .onboarding-title {
@@ -1546,11 +1650,13 @@ body.onboarding-lock {
     padding-top: clamp(0.45rem, 2vh, 0.95rem);
   }
 
-  .onboarding-content.is-profile-step {
+  .onboarding-content.is-profile-step,
+  .onboarding-content.is-tags-step {
     padding-top: 0.35rem;
   }
 
-  .onboarding-content.is-profile-step .onboarding-header {
+  .onboarding-content.is-profile-step .onboarding-header,
+  .onboarding-content.is-tags-step .onboarding-header {
     max-width: 100%;
     margin-top: clamp(1.25rem, 5.5vh, 2.85rem);
   }
