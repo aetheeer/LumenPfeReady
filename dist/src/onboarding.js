@@ -16,12 +16,6 @@ const PROFILE_OPTIONS = [
     title: "J’ai besoin de trouver un job le plus vite possible",
     titleHtml: `J’ai besoin de trouver un job <span class="onboarding-keyword-value">le plus vite possible</span>`,
     description: ""
-  },
-  {
-    id: "discovery",
-    title: "Je n'ai pas forcément d'idée de projet professionnel",
-    titleHtml: `Je n’ai <span class="onboarding-keyword-value">pas forcément d'idée</span> de projet professionnel`,
-    description: ""
   }
 ];
 
@@ -47,7 +41,7 @@ function getStepsForProfile(profileId) {
   }
 
   if (profileId === "urgent") {
-    return [...common, { type: STEP_TYPES.DEADLINE }];
+    return [...common];
   }
 
   return common;
@@ -79,7 +73,7 @@ export class Onboarding {
       const raw = sessionStorage.getItem(this.sessionStorageKey);
       if (!raw) return;
       const data = JSON.parse(raw);
-      if (data?.selectedProfile) {
+      if (data?.selectedProfile && data.selectedProfile !== "discovery") {
         this.selectedProfile = data.selectedProfile;
         this.steps = getStepsForProfile(this.selectedProfile);
       }
@@ -394,6 +388,12 @@ export class Onboarding {
     helperEl.hidden = !content.helper;
     contentRoot.classList.toggle("is-text-step", isTextStep);
     contentRoot.classList.toggle("is-profile-step", step.type === STEP_TYPES.PROFILE);
+    contentRoot.classList.toggle(
+      "is-tags-step",
+      step.type === STEP_TYPES.SKILLS ||
+        step.type === STEP_TYPES.VALUES ||
+        step.type === STEP_TYPES.DEADLINE
+    );
 
     stageContainer.innerHTML = "";
 

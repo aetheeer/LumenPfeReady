@@ -1,7 +1,12 @@
 import maplibregl from "https://esm.sh/maplibre-gl@4.7.1";
 import { MAP_CONFIG, VIEW_MODES } from "./config.js";
 import { searchFranceTravailOffers } from "../apis/lumenApi.js";
-import { inferOfferInsights } from "./offersInsights.js";
+import {
+  inferOfferInsights,
+  inferDisplayCorpusSkillsForOffer,
+  offerPredominantlyRequiresHardUnmasteredSkills,
+  offerHasOnlyAccessibleDisplayedSkills
+} from "./offersInsights.js";
 import { FR_DEPARTMENTS_GEOJSON } from "./frDepartmentsGeojson.js";
 
 let map;
@@ -14,6 +19,9 @@ let localizeButton = null;
 let tooltip = null;
 let offerPopup = null;
 let currentOfferViewMode = "localization";
+let onboardingProfileId = null;
+let urgentProfileActive = false;
+let urgentUserAnchor = null;
 let offersData = [];
 let offersRawById = new Map();
 let offersRevision = 0;
@@ -40,6 +48,7 @@ const SOURCES = {
   offers: "lumen-offers-source",
   labels: "lumen-labels-source",
   pdlFocus: "lumen-pdl-focus-source",
+  urgentRadius: "lumen-urgent-radius-source",
   sectorDepartments: "lumen-sector-departments-source",
   sectorDepartmentLabels: "lumen-sector-departments-labels-source",
   compatibilityRings: "lumen-compatibility-rings-source",
@@ -60,7 +69,9 @@ const LAYERS = {
   compatibilityRingMid: "lumen-compatibility-ring-mid",
   compatibilityRingOuter: "lumen-compatibility-ring-outer",
   compatibilityCenterDot: "lumen-compatibility-center-dot",
-  compatibilityCenterLabel: "lumen-compatibility-center-label"
+  compatibilityCenterLabel: "lumen-compatibility-center-label",
+  urgentRadiusFill: "lumen-urgent-radius-fill",
+  urgentRadiusLine: "lumen-urgent-radius-line"
 };
 
 const OFFERS_FETCH_BATCHES = ["0-149", "150-299"];
@@ -70,6 +81,16 @@ const SECTOR_VIEW_CENTER = [-0.95, 47.38];
 const SECTOR_VIEW_ZOOM = MAP_CONFIG.minZoom;
 const SECTOR_MIN_ZOOM = Math.max(4.6, MAP_CONFIG.minZoom - 3.2);
 const VIEW_TRANSITION_DURATION_MS = 820;
+/** Profil urgence : filtre géographique des offres (km autour de la position). */
+const URGENT_SEARCH_RADIUS_KM = 10;
+
+const FORMATION_LEVEL_ORDER = ["easy", "medium", "hard"];
+const FORMATION_META = {
+  easy: { label: "Formation simple", cssClass: "lumen-formation-simple" },
+  medium: { label: "Formation modérée", cssClass: "lumen-formation-moderee" },
+  hard: { label: "Formation longue", cssClass: "lumen-formation-longue" }
+};
+
 const SKILL_BASE_COLOR = "#7EB5FF";
 const VALUE_BASE_COLOR = "#F2C14E";
 const SKILL_COMPAT_PALETTE = ["#DCEEFF", "#A8CDFF", "#5D9EFF", "#2E73DA", "#15458F"];
@@ -148,6 +169,27 @@ function haversineKm(a, b) {
   return 2 * r * Math.asin(Math.sqrt(h));
 }
 
+function getCompatibilityMapCenterLngLat() {
+  if (urgentProfileActive && Array.isArray(urgentUserAnchor) && urgentUserAnchor.length === 2) {
+    return urgentUserAnchor;
+  }
+  return MAP_CONFIG.nantesCenter;
+}
+
+function sortRankedRowsByFormationTier(rows) {
+  const out = [];
+  FORMATION_LEVEL_ORDER.forEach((tier) => {
+    (rows || []).forEach((row) => {
+      const lev =
+        row.learnability === "easy" || row.learnability === "hard" || row.learnability === "medium"
+          ? row.learnability
+          : "medium";
+      if (lev === tier) out.push(row);
+    });
+  });
+  return out;
+}
+
 function bearingDeg(from, to) {
   const lon1 = toRad(from[0]);
   const lat1 = toRad(from[1]);
@@ -209,6 +251,20 @@ function normalizeQuery(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
+}
+
+/** Clé stable pour fusionner les doublons « même annonce » (IDs France Travail parfois distincts). */
+function normalizeOfferFingerprint(offer) {
+  const title = normalizeQuery((offer?.intitule || offer?.appellationlibelle || "").replace(/\s+/g, " "));
+  const city = normalizeQuery((offer?.lieuTravail?.libelle || "").replace(/\s+/g, " "));
+  const company = normalizeQuery((offer?.entreprise?.nom || "").replace(/\s+/g, " "));
+  return `${title}|${city}|${company}`;
+}
+
+function hasPreciseOfferCoords(offer) {
+  const lat = Number(offer?.lieuTravail?.latitude);
+  const lng = Number(offer?.lieuTravail?.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng);
 }
 
 function toSectorSlug(value) {
@@ -297,6 +353,14 @@ function getDepartmentCodeFromOffer(offer, feature) {
   return cityDept[cityKey] || "";
 }
 
+function applyPdlFocusGeojson(features) {
+  if (!map?.getSource(SOURCES.pdlFocus)) return;
+  map.getSource(SOURCES.pdlFocus).setData({
+    type: "FeatureCollection",
+    features: Array.isArray(features) ? features : []
+  });
+}
+
 function hexToRgb(hexColor) {
   const hex = (hexColor || "").replace("#", "");
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
@@ -345,6 +409,38 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function getUserMasteredSkillNormSet() {
+  const src = activeSkillFilters.length > 0 ? activeSkillFilters : selectedSkills;
+  return new Set((src || []).map((t) => normalizeQuery(t)).filter(Boolean));
+}
+
+function buildUrgentFormationGroupsHtml(rows) {
+  let list = Array.isArray(rows) ? [...rows] : [];
+  const mastered = getUserMasteredSkillNormSet();
+  list = list.filter((row) => !mastered.has(normalizeQuery(row.label)));
+  if (list.length === 0) return "";
+  const sorted = sortRankedRowsByFormationTier(list);
+  const chunks = [];
+  FORMATION_LEVEL_ORDER.forEach((tier) => {
+    const tierRows = sorted.filter((row) => {
+      const lev =
+        row.learnability === "easy" || row.learnability === "hard" || row.learnability === "medium"
+          ? row.learnability
+          : "medium";
+      return lev === tier;
+    });
+    if (tierRows.length === 0) return;
+    const meta = FORMATION_META[tier];
+    chunks.push(`<div class="lumen-formation-group">`);
+    chunks.push(`<div class="lumen-formation-heading ${meta.cssClass}">${escapeHtml(meta.label)}</div>`);
+    tierRows.forEach((row) => {
+      chunks.push(`<div class="lumen-formation-line">${escapeHtml(row.label || "")}</div>`);
+    });
+    chunks.push("</div>");
+  });
+  return chunks.join("");
+}
+
 function hideTooltip() {
   if (!tooltip) return;
   tooltip.style.display = "none";
@@ -367,14 +463,29 @@ function showTooltip(event, feature) {
   const chipLabels = matchedTagLabels.length > 0 ? matchedTagLabels : [fallbackTag || "Tag"];
   const tagColor = currentViewMode === VIEW_MODES.VALUES ? VALUE_BASE_COLOR : "#7EB5FF";
   const tagsHtml = chipLabels.map((label, index) => {
-    const suffix = index === 0 ? ` - ${compatibility}%` : "";
-    return `<span class="onboarding-tag is-active lumen-tooltip-top-tag" style="background:${tagColor};border-color:${tagColor};color:#091127;">${label}${suffix}</span>`;
+    const suffix = index === 0 && !urgentProfileActive ? ` - ${compatibility}%` : "";
+    return `<span class="onboarding-tag is-active lumen-tooltip-top-tag" style="background:${tagColor};border-color:${tagColor};color:#091127;">${escapeHtml(label)}${suffix}</span>`;
   }).join(" ");
+
+  let rankedHtml = "";
+  if (urgentProfileActive && typeof p.rankedCorpusSkillsJson === "string" && p.rankedCorpusSkillsJson) {
+    try {
+      const rows = JSON.parse(p.rankedCorpusSkillsJson);
+      if (Array.isArray(rows) && rows.length > 0) {
+        const formationHtml = buildUrgentFormationGroupsHtml(rows);
+        rankedHtml = formationHtml ? `<div class="lumen-tooltip-ranked">${formationHtml}</div>` : "";
+      }
+    } catch (_) {
+      rankedHtml = "";
+    }
+  }
+
   tooltip.innerHTML = `
     ${tagsHtml}<br>
-    <strong>${p.title || "Offre d'emploi"}</strong><br>
-    ${p.company || "Entreprise non renseignee"}<br>
-    ${p.city || ""}
+    ${rankedHtml}
+    <strong>${escapeHtml(p.title || "Offre d'emploi")}</strong><br>
+    ${escapeHtml(p.company || "Entreprise non renseignee")}<br>
+    ${escapeHtml(p.city || "")}
   `;
   tooltip.style.display = "block";
   const x = Math.max(12, Math.min(event.point.x + 18, rect.width - 280));
@@ -390,11 +501,13 @@ function showSectorTooltip(event, feature) {
   if (!host) return;
   const rect = host.getBoundingClientRect();
   const p = feature.properties;
+  const valueLine = urgentProfileActive
+    ? ""
+    : `<br>Valeur dominante : ${escapeHtml(p.dominantValue || "Non renseignée")}`;
   tooltip.innerHTML = `
     <span class="onboarding-tag is-active lumen-tooltip-top-tag" style="background:${escapeHtml(p.sectorColor || "#4EA1FF")};border-color:${escapeHtml(p.sectorColor || "#4EA1FF")};color:#081022;">${escapeHtml(p.dominantSector || "Secteur")}</span><br>
     <strong>${escapeHtml(p.nom || `Département ${p.code || ""}`)}</strong><br>
-    Compétence dominante : ${escapeHtml(p.dominantSkill || "Non renseignée")}<br>
-    Valeur dominante : ${escapeHtml(p.dominantValue || "Non renseignée")}
+    Compétence dominante : ${escapeHtml(p.dominantSkill || "Non renseignée")}${valueLine}
   `;
   tooltip.style.display = "block";
   const x = Math.max(12, Math.min(event.point.x + 18, rect.width - 320));
@@ -486,6 +599,7 @@ function buildOfferFeature(offer) {
   const { coordinates, source } = located;
 
   const insights = inferOfferInsights(offer);
+  const rankedCorpusSkills = inferDisplayCorpusSkillsForOffer(offer);
   const title = offer?.intitule || offer?.appellationlibelle || "Offre France Travail";
   const company = offer?.entreprise?.nom || "";
   const city = offer?.lieuTravail?.libelle || "";
@@ -534,7 +648,10 @@ function buildOfferFeature(offer) {
       locationSource: source,
       baseLng: coordinates[0],
       baseLat: coordinates[1],
-      overlapKey: `${coordinates[0].toFixed(5)}|${coordinates[1].toFixed(5)}`
+      overlapKey: `${coordinates[0].toFixed(5)}|${coordinates[1].toFixed(5)}`,
+      rankedCorpusSkillsJson: JSON.stringify(
+        rankedCorpusSkills.map(({ label, learnability, rawScore }) => ({ label, learnability, rawScore }))
+      )
     }
   };
 }
@@ -610,7 +727,7 @@ function getCompatibilityBand(ratio) {
 }
 
 function buildCompatibilityFeatures(features) {
-  const center = MAP_CONFIG.nantesCenter;
+  const center = getCompatibilityMapCenterLngLat();
   const ringRadiusKm = {
     inner: 2.4,
     middle: 4.4,
@@ -651,6 +768,15 @@ function updateOffersStatus() {
   return;
 }
 
+function passesUrgentRadiusFilter(feature) {
+  if (!urgentProfileActive) return true;
+  if (!Array.isArray(urgentUserAnchor) || urgentUserAnchor.length !== 2) return false;
+  const lng = feature?.properties?.baseLng;
+  const lat = feature?.properties?.baseLat;
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return false;
+  return haversineKm(urgentUserAnchor, [lng, lat]) <= URGENT_SEARCH_RADIUS_KM;
+}
+
 function getFilteredFeatures() {
   const query = normalizeQuery(searchQuery);
   const searchFiltered = query
@@ -669,7 +795,20 @@ function getFilteredFeatures() {
 
   return searchFiltered.filter((feature) => {
     const blob = feature?.properties?.skillMatchText || "";
-    return normalizedSkillTags.some((tag) => blob.includes(tag));
+    const skillMatch = normalizedSkillTags.some((tag) => blob.includes(tag));
+
+    if (urgentProfileActive) {
+      if (!passesUrgentRadiusFilter(feature)) return false;
+      const raw = offersRawById.get(feature?.properties?.rawOfferId || "");
+      if (!raw) return false;
+      if (skillMatch) {
+        return !offerPredominantlyRequiresHardUnmasteredSkills(raw, selectedSkills);
+      }
+      return offerHasOnlyAccessibleDisplayedSkills(raw);
+    }
+
+    if (!skillMatch) return false;
+    return true;
   });
 }
 
@@ -791,6 +930,9 @@ function refreshOffers() {
   };
   map.getSource(SOURCES.offers).setData(data);
   setCompatibilityGuidesVisibility(currentOfferViewMode === "compatibility");
+  if (urgentProfileActive) {
+    setUrgentRadiusLayersVisibility(currentOfferViewMode === "localization");
+  }
   updateOffersStatus();
 }
 
@@ -914,6 +1056,7 @@ function addPdlFocusLayers() {
       "line-opacity": 0.72
     }
   });
+  syncPdlFocusLayerVisibility();
 }
 
 function buildDepartmentSectorProfiles() {
@@ -1301,6 +1444,83 @@ function addCompatibilityGuideLayers() {
   });
 }
 
+function updateCompatibilityGuideGeometry(centerLngLat) {
+  if (!map?.getSource(SOURCES.compatibilityRings)) return;
+  const center =
+    Array.isArray(centerLngLat) && centerLngLat.length === 2 ? centerLngLat : MAP_CONFIG.nantesCenter;
+  const rings = [
+    { radius: 2.4, band: "inner" },
+    { radius: 4.4, band: "middle" },
+    { radius: 6.6, band: "outer" }
+  ].map((item) => ({
+    ...buildCircle(center, item.radius),
+    properties: { band: item.band }
+  }));
+  map.getSource(SOURCES.compatibilityRings).setData({ type: "FeatureCollection", features: rings });
+  map.getSource(SOURCES.compatibilityCenter).setData({
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: center },
+        properties: { label: "Vous" }
+      }
+    ]
+  });
+  ensureCompatibilityCenterMarker();
+  compatibilityCenterMarker?.setLngLat(center);
+}
+
+function addUrgentRadiusLayers() {
+  map.addSource(SOURCES.urgentRadius, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] }
+  });
+  map.addLayer({
+    id: LAYERS.urgentRadiusFill,
+    type: "fill",
+    source: SOURCES.urgentRadius,
+    layout: { visibility: "none" },
+    paint: {
+      "fill-color": "#7EB5FF",
+      "fill-opacity": 0.07
+    }
+  });
+  map.addLayer({
+    id: LAYERS.urgentRadiusLine,
+    type: "line",
+    source: SOURCES.urgentRadius,
+    layout: { visibility: "none" },
+    paint: {
+      "line-color": "rgba(126, 181, 255, 0.55)",
+      "line-width": 1.6,
+      "line-opacity": 0.9
+    }
+  });
+}
+
+function updateUrgentSearchRadiusPolygon(centerLngLat) {
+  if (!map?.getSource(SOURCES.urgentRadius)) return;
+  if (!Array.isArray(centerLngLat) || centerLngLat.length !== 2) {
+    map.getSource(SOURCES.urgentRadius).setData({ type: "FeatureCollection", features: [] });
+    return;
+  }
+  const circle = buildCircle(centerLngLat, URGENT_SEARCH_RADIUS_KM);
+  map.getSource(SOURCES.urgentRadius).setData({ type: "FeatureCollection", features: [circle] });
+}
+
+function setUrgentRadiusLayersVisibility(isVisible) {
+  const visibility =
+    isVisible && urgentProfileActive && Array.isArray(urgentUserAnchor) && urgentUserAnchor.length === 2
+      ? "visible"
+      : "none";
+  [LAYERS.urgentRadiusFill, LAYERS.urgentRadiusLine].forEach((layerId) => {
+    if (map?.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, "visibility", visibility);
+    }
+  });
+}
+
 function setCompatibilityGuidesVisibility(isVisible) {
   const visibility = isVisible ? "visible" : "none";
   [LAYERS.compatibilityRingInner, LAYERS.compatibilityRingMid, LAYERS.compatibilityRingOuter, LAYERS.compatibilityCenterDot, LAYERS.compatibilityCenterLabel]
@@ -1366,6 +1586,16 @@ function setPdlFocusVisibility(isVisible) {
       map.setLayoutProperty(layerId, "visibility", visibility);
     }
   });
+}
+
+/** PdL : visible seulement en localisation et hors profil urgence (le périmètre 10 km suffit en urgence). */
+function syncPdlFocusLayerVisibility() {
+  if (!map?.getLayer(LAYERS.pdlFocusFill)) return;
+  if (currentOfferViewMode !== "localization") {
+    setPdlFocusVisibility(false);
+    return;
+  }
+  setPdlFocusVisibility(!urgentProfileActive);
 }
 
 function setOfferMarkersVisibility(isVisible) {
@@ -1448,6 +1678,19 @@ function addOfferLayers() {
       `<span class="lumen-offer-popup-tag">${escapeHtml(tag)}</span>`
     ).join("");
 
+    let rankedBlock = "";
+    if (urgentProfileActive && typeof p.rankedCorpusSkillsJson === "string") {
+      try {
+        const rows = JSON.parse(p.rankedCorpusSkillsJson);
+        if (Array.isArray(rows) && rows.length > 0) {
+          const formationHtml = buildUrgentFormationGroupsHtml(rows);
+          rankedBlock = formationHtml ? `<div class="lumen-offer-popup-ranked">${formationHtml}</div>` : "";
+        }
+      } catch (_) {
+        rankedBlock = "";
+      }
+    }
+
     if (offerPopup) {
       offerPopup.remove();
       offerPopup = null;
@@ -1466,6 +1709,7 @@ function addOfferLayers() {
           <div class="lumen-offer-popup-title">${escapeHtml(p.title || "Offre d'emploi")}</div>
           <div class="lumen-offer-popup-meta">${escapeHtml(p.company || "Entreprise non renseignée")} · ${escapeHtml(p.city || "")}</div>
           ${tagsHtml ? `<div class="lumen-offer-popup-tags">${tagsHtml}</div>` : ""}
+          ${rankedBlock}
           ${description ? `<div class="lumen-offer-popup-desc">${description}</div>` : ""}
           ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="lumen-offer-popup-link">Voir cette offre</a>` : ""}
         </div>
@@ -1534,12 +1778,25 @@ async function loadOffers() {
         signal.valueCounts.set(value, (signal.valueCounts.get(value) || 0) + 1);
       });
     });
-    const dedup = new Map();
-    merged.forEach((offer) => {
-      if (!offer?.id || dedup.has(offer.id)) return;
-      dedup.set(offer.id, offer);
+    merged.sort((a, b) => {
+      const pa = hasPreciseOfferCoords(a) ? 0 : 1;
+      const pb = hasPreciseOfferCoords(b) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return String(a?.id || "").localeCompare(String(b?.id || ""));
     });
-    const results = [...dedup.values()];
+    const seenIds = new Set();
+    const seenFingerprints = new Set();
+    const results = [];
+    merged.forEach((offer) => {
+      const id = String(offer?.id || "").trim();
+      if (id && seenIds.has(id)) return;
+      const fp = normalizeOfferFingerprint(offer);
+      const fpCore = fp.replace(/\|/g, "").trim();
+      if (fpCore.length >= 10 && seenFingerprints.has(fp)) return;
+      if (id) seenIds.add(id);
+      if (fpCore.length >= 10) seenFingerprints.add(fp);
+      results.push(offer);
+    });
     offersRevision += 1;
     offersRawById = new Map(results.map((offer) => [offer?.id || "", offer]));
     offersData = results.map(buildOfferFeature).filter(Boolean);
@@ -1588,49 +1845,127 @@ function buildAccuracyPolygon(center, radiusMeters, steps = 48) {
   return { type: "Feature", geometry: { type: "Polygon", coordinates: [coords] }, properties: {} };
 }
 
+function placeUserMarkerWithAccuracy(coords, accuracyMeters) {
+  if (!map) return;
+  if (userMarker) userMarker.remove();
+  userMarker = new maplibregl.Marker({ color: "#8ab4ff" }).setLngLat(coords).addTo(map);
+
+  const accuracyFeature = buildAccuracyPolygon(coords, Math.min(accuracyMeters || 120, 1200));
+  if (!map.getSource("user-accuracy-source")) {
+    map.addSource("user-accuracy-source", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [accuracyFeature] }
+    });
+    map.addLayer({
+      id: "user-accuracy-layer",
+      type: "fill",
+      source: "user-accuracy-source",
+      paint: {
+        "fill-color": "#8ab4ff",
+        "fill-opacity": 0.12
+      }
+    });
+  } else {
+    map.getSource("user-accuracy-source").setData({
+      type: "FeatureCollection",
+      features: [accuracyFeature]
+    });
+  }
+}
+
+function flyMapToUserCoords(coords, minZoom = 13) {
+  if (!map) return;
+  if (urgentProfileActive) {
+    map.easeTo({
+      center: coords,
+      zoom: Math.max(map.getZoom(), minZoom),
+      pitch: 0,
+      bearing: 0,
+      duration: 550
+    });
+    return;
+  }
+  const distance = haversineKm(MAP_CONFIG.nantesCenter, coords);
+  if (distance > MAP_CONFIG.hardLimitRadiusKm) {
+    const bearing = bearingDeg(MAP_CONFIG.nantesCenter, coords);
+    const clamped = destinationPoint(MAP_CONFIG.nantesCenter, MAP_CONFIG.hardLimitRadiusKm - 0.1, bearing);
+    map.easeTo({ center: clamped, zoom: Math.max(map.getZoom(), 12), duration: 500 });
+  } else {
+    map.easeTo({ center: coords, zoom: Math.max(map.getZoom(), minZoom), duration: 500 });
+  }
+}
+
+function commitUrgentViewportForLocation(lng, lat) {
+  if (!urgentProfileActive || !map) return;
+  urgentUserAnchor = [lng, lat];
+  updateUrgentSearchRadiusPolygon(urgentUserAnchor);
+  setUrgentRadiusLayersVisibility(currentOfferViewMode === "localization");
+  if (currentOfferViewMode === "compatibility") {
+    updateCompatibilityGuideGeometry(urgentUserAnchor);
+  }
+  refreshOffers();
+}
+
+/**
+ * Profil urgence : géolocalisation, périmètre 10 km, carte centrée sur l'utilisateur.
+ * Appeler après `setUserContext` avec `profile: "urgent"`.
+ */
+export function startUrgentLocationFlow() {
+  if (!urgentProfileActive || !map) return;
+
+  const runGeo = () => {
+    if (!navigator.geolocation) {
+      const [lng, lat] = MAP_CONFIG.nantesCenter;
+      placeUserMarkerWithAccuracy([lng, lat], 500);
+      flyMapToUserCoords([lng, lat], 10.5);
+      commitUrgentViewportForLocation(lng, lat);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const coords = [position.coords.longitude, position.coords.latitude];
+        placeUserMarkerWithAccuracy(coords, position.coords.accuracy || 120);
+        flyMapToUserCoords(coords, 11);
+        commitUrgentViewportForLocation(coords[0], coords[1]);
+      },
+      () => {
+        const [lng, lat] = MAP_CONFIG.nantesCenter;
+        placeUserMarkerWithAccuracy([lng, lat], 500);
+        flyMapToUserCoords([lng, lat], 10.5);
+        commitUrgentViewportForLocation(lng, lat);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 }
+    );
+  };
+
+  const startWhenMapReady = () => {
+    if (map.getSource(SOURCES.urgentRadius)) {
+      runGeo();
+      return;
+    }
+    map.once("load", startWhenMapReady);
+  };
+
+  if (map.isStyleLoaded()) startWhenMapReady();
+  else map.once("load", startWhenMapReady);
+}
+
 export function locateUser() {
   if (!map || !navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const coords = [position.coords.longitude, position.coords.latitude];
-      const distance = haversineKm(MAP_CONFIG.nantesCenter, coords);
-      if (distance > MAP_CONFIG.hardLimitRadiusKm) {
-        const bearing = bearingDeg(MAP_CONFIG.nantesCenter, coords);
-        const clamped = destinationPoint(MAP_CONFIG.nantesCenter, MAP_CONFIG.hardLimitRadiusKm - 0.1, bearing);
-        map.easeTo({ center: clamped, zoom: Math.max(map.getZoom(), 12), duration: 500 });
-      } else {
-        map.easeTo({ center: coords, zoom: Math.max(map.getZoom(), 13), duration: 500 });
-      }
-
-      if (userMarker) userMarker.remove();
-      userMarker = new maplibregl.Marker({ color: "#8ab4ff" }).setLngLat(coords).addTo(map);
-
-      const accuracyMeters = Math.min(position.coords.accuracy || 120, 1200);
-      const accuracyFeature = buildAccuracyPolygon(coords, accuracyMeters);
-      if (!map.getSource("user-accuracy-source")) {
-        map.addSource("user-accuracy-source", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [accuracyFeature] }
-        });
-        map.addLayer({
-          id: "user-accuracy-layer",
-          type: "fill",
-          source: "user-accuracy-source",
-          paint: {
-            "fill-color": "#8ab4ff",
-            "fill-opacity": 0.12
-          }
-        });
-      } else {
-        map.getSource("user-accuracy-source").setData({
-          type: "FeatureCollection",
-          features: [accuracyFeature]
-        });
+      flyMapToUserCoords(coords, 13);
+      placeUserMarkerWithAccuracy(coords, position.coords.accuracy || 120);
+      if (urgentProfileActive) {
+        commitUrgentViewportForLocation(coords[0], coords[1]);
       }
     },
     (error) => {
       console.warn("[Lumen] Géolocalisation indisponible :", error?.message || error);
-      alert("Impossible d'accéder à la géolocalisation. Vérifiez l'autorisation navigateur.");
+      if (!urgentProfileActive) {
+        alert("Impossible d'accéder à la géolocalisation. Vérifiez l'autorisation navigateur.");
+      }
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
   );
@@ -1658,6 +1993,7 @@ export function initMap(container) {
   map.on("load", () => {
     addPerimeterLayers();
     addPdlFocusLayers();
+    addUrgentRadiusLayers();
     addContextLabelsLayer();
     addSectorizationLayers();
     addCompatibilityGuideLayers();
@@ -1694,6 +2030,16 @@ export function zoomOut() {
 
 export function resetView() {
   if (!map) return;
+  if (urgentProfileActive && Array.isArray(urgentUserAnchor) && urgentUserAnchor.length === 2) {
+    map.easeTo({
+      center: urgentUserAnchor,
+      zoom: 10.8,
+      pitch: 0,
+      bearing: 0,
+      duration: 300
+    });
+    return;
+  }
   map.easeTo({
     center: MAP_CONFIG.nantesCenter,
     zoom: MAP_CONFIG.initialZoom,
@@ -1738,7 +2084,26 @@ export function refreshSessionCriteria() {
 export function setUserContext(context = {}) {
   selectedSkills = Array.isArray(context.skills) ? context.skills : [];
   selectedValues = Array.isArray(context.values) ? context.values : [];
+  if (typeof context.profile === "string") {
+    onboardingProfileId = context.profile;
+    urgentProfileActive = context.profile === "urgent";
+    if (!urgentProfileActive) {
+      urgentUserAnchor = null;
+      if (map?.getSource(SOURCES.pdlFocus)) {
+        const pdlFeatures = (Array.isArray(FR_DEPARTMENTS_GEOJSON?.features) ? FR_DEPARTMENTS_GEOJSON.features : []).filter((feature) =>
+          PDL_DEPARTMENT_CODES.has(String(feature?.properties?.code || ""))
+        );
+        applyPdlFocusGeojson(pdlFeatures);
+      }
+      if (map?.getSource(SOURCES.urgentRadius)) {
+        map.getSource(SOURCES.urgentRadius).setData({ type: "FeatureCollection", features: [] });
+      }
+      setUrgentRadiusLayersVisibility(false);
+    }
+  }
+  document.querySelector(".map-wrapper")?.classList.toggle("is-urgent-profile", Boolean(urgentProfileActive));
   refreshOffers();
+  syncPdlFocusLayerVisibility();
 }
 
 export function setActiveTagFilters(filters = {}) {
@@ -1772,15 +2137,17 @@ export function setOfferViewMode(mode) {
       essential: true,
       easing: (t) => 1 - ((1 - t) ** 3.2)
     };
+    const compatCenter = getCompatibilityMapCenterLngLat();
     if (currentOfferViewMode === "compatibility") {
+      updateCompatibilityGuideGeometry(compatCenter);
       map.setMinZoom(MAP_CONFIG.minZoom);
       setGeographicLayersVisibility(false);
       setPerimeterVisibility(false);
-      setPdlFocusVisibility(false);
       setSectorizationLayersVisibility(false);
+      setUrgentRadiusLayersVisibility(false);
       map.flyTo({
-        center: MAP_CONFIG.nantesCenter,
-        zoom: 11.6,
+        center: compatCenter,
+        zoom: urgentProfileActive ? 11.25 : 11.6,
         pitch: 0,
         bearing: 0,
         ...smoothTransition
@@ -1790,10 +2157,10 @@ export function setOfferViewMode(mode) {
       ensureSectorizationLayersReady();
       setGeographicLayersVisibility(true);
       setPerimeterVisibility(false);
-      setPdlFocusVisibility(false);
       setSectorizationLayersVisibility(true);
       setCompatibilityGuidesVisibility(false);
       setOfferMarkersVisibility(false);
+      setUrgentRadiusLayersVisibility(false);
       refreshSectorizationFromOffers();
       map.flyTo({
         center: SECTOR_VIEW_CENTER,
@@ -1806,16 +2173,29 @@ export function setOfferViewMode(mode) {
       map.setMinZoom(MAP_CONFIG.minZoom);
       setGeographicLayersVisibility(true);
       setPerimeterVisibility(true);
-      setPdlFocusVisibility(true);
       setSectorizationLayersVisibility(false);
-      map.flyTo({
-        center: MAP_CONFIG.nantesCenter,
-        zoom: MAP_CONFIG.initialZoom,
-        pitch: isIsometricView ? 45 : 0,
-        bearing: isIsometricView ? -15 : 0,
-        ...smoothTransition
-      });
+      setUrgentRadiusLayersVisibility(Boolean(urgentProfileActive && urgentUserAnchor));
+      if (!urgentProfileActive) {
+        map.flyTo({
+          center: MAP_CONFIG.nantesCenter,
+          zoom: MAP_CONFIG.initialZoom,
+          pitch: isIsometricView ? 45 : 0,
+          bearing: isIsometricView ? -15 : 0,
+          ...smoothTransition
+        });
+      } else if (Array.isArray(urgentUserAnchor) && urgentUserAnchor.length === 2) {
+        map.flyTo({
+          center: urgentUserAnchor,
+          zoom: 11.25,
+          pitch: 0,
+          bearing: 0,
+          ...smoothTransition
+        });
+      } else {
+        map.easeTo({ pitch: 0, bearing: 0, duration: 400 });
+      }
     }
+    syncPdlFocusLayerVisibility();
   }
   emitSectorizationState();
   refreshOffers();

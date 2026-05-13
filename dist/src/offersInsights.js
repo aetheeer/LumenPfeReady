@@ -1,4 +1,4 @@
-import { SKILL_LABELS, VALUE_LABELS } from "./corpus.js";
+import { SKILL_LABELS, VALUE_LABELS, getSkillLearnability } from "./corpus.js";
 
 const SKILL_HINTS = {
   "Communication orale": ["telephone", "client", "relation", "accueil", "negociation"],
@@ -23,7 +23,14 @@ const SKILL_HINTS = {
   "Communication digitale": ["social", "seo", "campagne", "contenu"],
   "UI Design": ["ui", "interface", "maquette", "figma", "composant"],
   "UX Design": ["ux", "parcours", "experience utilisateur", "user research", "interview utilisateur"],
-  "Design produit": ["product design", "design produit", "feature", "discovery", "roadmap produit"],
+  "Design industriel": [
+    "design industriel",
+    "industrial design",
+    "conception industrielle",
+    "design for manufacturing",
+    "dfm",
+    "id design"
+  ],
   "Design system": ["design system", "tokens", "library", "composants"],
   Wireframing: ["wireframe", "zoning", "arborescence"],
   Prototypage: ["prototype", "prototypage", "interactive"],
@@ -147,6 +154,36 @@ function buildCorpusIndex(labels, hints) {
 const SKILL_INDEX = buildCorpusIndex(SKILL_LABELS, SKILL_HINTS);
 const VALUE_INDEX = buildCorpusIndex(VALUE_LABELS, VALUE_HINTS);
 
+function computeCorpusItemRawScore(item, text, offerTokens, offerCompetenceTokens) {
+  let score = 0;
+  score += countOccurrences(text, item.normalizedLabel) * 14;
+
+  item.labelTokens.forEach((token) => {
+    score += countOccurrences(text, token) * 3;
+    if (offerTokens.has(token)) score += 4;
+  });
+
+  item.hintTokens.forEach((token) => {
+    score += countOccurrences(text, token) * 2;
+    if (offerTokens.has(token)) score += 2;
+  });
+
+  // Un seul meilleur alignement par offre (évite d'additionner des micro-overlaps
+  // sur toutes les lignes « compétences » et de faire monter artificiellement tout le corpus).
+  if (offerCompetenceTokens.length > 0) {
+    let bestChunk = 0;
+    offerCompetenceTokens.forEach((candidateTokens) => {
+      const labelOverlap = overlapRatio(item.labelTokens, candidateTokens);
+      const hintOverlap = overlapRatio(item.hintTokens, candidateTokens);
+      const chunk = labelOverlap * 18 + hintOverlap * 10;
+      if (chunk > bestChunk) bestChunk = chunk;
+    });
+    score += bestChunk;
+  }
+
+  return score;
+}
+
 function scoreIndex({ text, offerTokens, offerCompetenceTokens, corpusIndex }) {
   let best = {
     label: corpusIndex[0]?.label || "Inconnu",
@@ -154,28 +191,7 @@ function scoreIndex({ text, offerTokens, offerCompetenceTokens, corpusIndex }) {
   };
 
   corpusIndex.forEach((item) => {
-    let score = 0;
-
-    score += countOccurrences(text, item.normalizedLabel) * 14;
-
-    item.labelTokens.forEach((token) => {
-      score += countOccurrences(text, token) * 3;
-      if (offerTokens.has(token)) score += 4;
-    });
-
-    item.hintTokens.forEach((token) => {
-      score += countOccurrences(text, token) * 2;
-      if (offerTokens.has(token)) score += 2;
-    });
-
-    if (offerCompetenceTokens.length > 0) {
-      offerCompetenceTokens.forEach((candidateTokens) => {
-        const labelOverlap = overlapRatio(item.labelTokens, candidateTokens);
-        const hintOverlap = overlapRatio(item.hintTokens, candidateTokens);
-        score += labelOverlap * 18 + hintOverlap * 10;
-      });
-    }
-
+    const score = computeCorpusItemRawScore(item, text, offerTokens, offerCompetenceTokens);
     if (score > best.rawScore) {
       best = {
         label: item.label,
@@ -194,6 +210,103 @@ function pseudoScore(seedText) {
     hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
   }
   return (hash % 40) + 30;
+}
+
+function normalizeUserSkillRef(value) {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** Nombre max de compétences corpus affichées (popover / filtre urgence). */
+export const URGENT_DISPLAY_MAX_SKILLS = 5;
+
+/**
+ * Compétences du corpus **pertinentes pour l'offre** (score + ancrage texte / fiches compétences),
+ * plafonnées — utilisé pour l'affichage urgence et le filtre « formation longue ».
+ */
+export function inferDisplayCorpusSkillsForOffer(offer, maxItems = URGENT_DISPLAY_MAX_SKILLS) {
+  const text = textFromOffer(offer);
+  const offerTokens = new Set(tokenize(text));
+  const offerCompetenceTokens = listOfferCompetenceTexts(offer).map((entry) => uniqueTokens(entry));
+
+  const scored = SKILL_INDEX.map((item) => {
+    const rawScore = computeCorpusItemRawScore(item, text, offerTokens, offerCompetenceTokens);
+    const labelInText = countOccurrences(text, item.normalizedLabel) > 0;
+    let maxCompOverlap = 0;
+    offerCompetenceTokens.forEach((ct) => {
+      if (!ct.length) return;
+      maxCompOverlap = Math.max(
+        maxCompOverlap,
+        overlapRatio(item.labelTokens, ct),
+        overlapRatio(item.hintTokens, ct)
+      );
+    });
+    const strongTokenHit =
+      item.labelTokens.some((tok) => offerTokens.has(tok)) && rawScore >= 22;
+    const anchored = labelInText || maxCompOverlap >= 0.34 || strongTokenHit;
+    return {
+      label: item.label,
+      learnability: getSkillLearnability(item.label),
+      rawScore,
+      anchored,
+      maxCompOverlap
+    };
+  });
+
+  const positives = scored.filter((s) => s.rawScore > 0).sort((a, b) => b.rawScore - a.rawScore);
+  if (positives.length === 0) return [];
+
+  const top = positives[0].rawScore;
+  const threshold = Math.max(16, top * 0.46);
+
+  let chosen = positives.filter((s) => s.rawScore >= threshold && s.anchored);
+  if (chosen.length === 0) {
+    chosen = positives.filter((s) => s.rawScore >= threshold);
+  }
+  if (chosen.length === 0) {
+    chosen = positives.filter((s) => s.anchored && s.rawScore >= Math.max(12, top * 0.36));
+  }
+  if (chosen.length === 0) {
+    chosen = positives.filter((s) => s.maxCompOverlap >= 0.38 || s.rawScore >= top * 0.55).slice(0, maxItems);
+  }
+  if (chosen.length === 0) {
+    return positives.slice(0, Math.min(2, maxItems)).map(({ label, learnability, rawScore }) => ({
+      label,
+      learnability,
+      rawScore
+    }));
+  }
+
+  return chosen
+    .sort((a, b) => b.rawScore - a.rawScore)
+    .slice(0, maxItems)
+    .map(({ label, learnability, rawScore }) => ({ label, learnability, rawScore }));
+}
+
+/**
+ * Profil urgence : ne pas proposer l'offre si, parmi les compétences corpus retenues pour l'affichage,
+ * une compétence « formation longue » (hard) est exigée alors que l'utilisateur ne la maîtrise pas.
+ */
+export function offerPredominantlyRequiresHardUnmasteredSkills(offer, userMasteredSkills) {
+  const ranked = inferDisplayCorpusSkillsForOffer(offer, URGENT_DISPLAY_MAX_SKILLS);
+  if (ranked.length === 0) return false;
+  const userSet = new Set((userMasteredSkills || []).map(normalizeUserSkillRef).filter(Boolean));
+  const nonMastered = ranked.filter((entry) => !userSet.has(normalizeUserSkillRef(entry.label)));
+  if (nonMastered.length === 0) return false;
+  return nonMastered.some((entry) => entry.learnability === "hard");
+}
+
+/**
+ * Profil urgence — offres hors tags utilisateur : la liste corpus affichée pour l'offre
+ * ne doit contenir que des compétences « formation simple » ou « formation modérée » (aucune longue).
+ */
+export function offerHasOnlyAccessibleDisplayedSkills(offer) {
+  const ranked = inferDisplayCorpusSkillsForOffer(offer, URGENT_DISPLAY_MAX_SKILLS);
+  if (ranked.length === 0) return false;
+  return ranked.every((entry) => entry.learnability === "easy" || entry.learnability === "medium");
 }
 
 export function inferOfferInsights(offer) {

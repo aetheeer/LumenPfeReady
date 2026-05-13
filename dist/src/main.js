@@ -11,11 +11,12 @@ import {
   setOfferViewMode,
   setActiveTagFilters,
   setViewMode,
-  getViewMode
-} from "./mapView.js?v=1034";
-import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1034";
-import { VIEW_MODES } from './config.js?v=1034';
-import { Onboarding } from './onboarding.js?v=1034';
+  getViewMode,
+  startUrgentLocationFlow
+} from "./mapView.js?v=1048";
+import { initControls, initOfferViewToggle, initViewToggle, initViewTypeToggle } from "./uiControls.js?v=1048";
+import { VIEW_MODES } from './config.js?v=1048';
+import { Onboarding } from './onboarding.js?v=1048';
 
 const SESSION_KEY = "lumen.onboarding.session";
 
@@ -25,7 +26,15 @@ let lastOfferViewModeForPanel = "localization";
 function parseSessionData() {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    const data = JSON.parse(raw);
+    if (data?.selectedProfile === "discovery") {
+      const next = { ...data };
+      delete next.selectedProfile;
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+      return next;
+    }
+    return data;
   } catch {
     return {};
   }
@@ -41,10 +50,23 @@ function updateCompatibilityLegend(mode) {
  * En localisation / compatibilité : une seule section (axe du tab compétences / valeurs).
  * En sectorisation : les deux sections restent visibles.
  */
-function syncContextPanelSections(skillsValuesMode, offerViewMode) {
+function syncContextPanelSections(skillsValuesMode, offerViewMode, urgentProfile = false) {
   const skillsSection = document.getElementById("user-skills-section");
   const valuesSection = document.getElementById("user-values-section");
   const showBoth = offerViewMode === "sectorization";
+  if (urgentProfile) {
+    if (skillsSection) {
+      skillsSection.hidden = false;
+      skillsSection.removeAttribute("hidden");
+      skillsSection.style.display = "";
+    }
+    if (valuesSection) {
+      valuesSection.hidden = true;
+      valuesSection.setAttribute("hidden", "");
+      valuesSection.style.display = "none";
+    }
+    return;
+  }
   if (skillsSection) {
     skillsSection.hidden = showBoth ? false : skillsValuesMode === VIEW_MODES.VALUES;
   }
@@ -69,7 +91,7 @@ function setSkillsValuesToggleDisabled(disabled) {
   });
 }
 
-function updateOfferLegendForMode(mode) {
+function updateOfferLegendForMode() {
   const legend = document.querySelector(".map-side-panel-legend");
   if (!legend) return;
   const labels = legend.querySelectorAll(".map-side-panel-legend-scale span");
@@ -186,27 +208,19 @@ function renderUserContextPanel(onboardingData) {
 
   rerenderTags();
 
-  const isUrgent = data?.selectedProfile === "urgent";
   if (deadlineSection) {
-    if (!isUrgent) {
-      deadlineSection.hidden = true;
-      deadlineSection.setAttribute("hidden", "");
-      deadlineSection.style.display = "none";
-    } else {
-      deadlineSection.removeAttribute("hidden");
-      deadlineSection.hidden = false;
-      deadlineSection.style.display = "";
-    }
+    deadlineSection.hidden = true;
+    deadlineSection.setAttribute("hidden", "");
+    deadlineSection.style.display = "none";
   }
-  if (isUrgent) {
-    renderTagList(deadlineHost, data?.deadline ? [data.deadline] : [], "Aucun délai sélectionné", "deadline", activeFilters, toggleFilterTag, sectorizationState);
-  } else if (deadlineHost) {
+  if (deadlineHost) {
     deadlineHost.innerHTML = "";
   }
 
   setUserContext({
     skills: data?.skills || [],
-    values: data?.values || []
+    values: data?.values || [],
+    profile: data?.selectedProfile || null
   });
 
   const panel = document.getElementById("user-context-panel");
@@ -255,6 +269,8 @@ function initializeApp(onboardingData) {
     return;
   }
 
+  const isUrgentProfile = onboardingData?.selectedProfile === "urgent";
+
   // Afficher le contenu de l'application
   const appMain = document.querySelector('.app-main');
   const appFooter = document.querySelector('.app-footer');
@@ -270,8 +286,21 @@ function initializeApp(onboardingData) {
   lastOfferViewModeForPanel = "localization";
   setOfferViewMode("localization");
   setSkillsValuesToggleDisabled(false);
+
+  if (isUrgentProfile) {
+    setViewMode(VIEW_MODES.SKILLS);
+    const skillsValuesToggle = document.getElementById("view-toggle");
+    if (skillsValuesToggle) {
+      skillsValuesToggle.style.display = "none";
+    }
+  }
+
   renderUserContextPanel(onboardingData);
-  syncContextPanelSections(VIEW_MODES.SKILLS, lastOfferViewModeForPanel);
+  syncContextPanelSections(VIEW_MODES.SKILLS, lastOfferViewModeForPanel, isUrgentProfile);
+
+  if (isUrgentProfile) {
+    startUrgentLocationFlow();
+  }
 
   const controls = initControls(document);
   controls.onZoomIn(() => {
@@ -291,13 +320,14 @@ function initializeApp(onboardingData) {
 
   // Initialize view toggle (skills/values)
   initViewToggle(mode => {
+    if (isUrgentProfile) return;
     if (mode === VIEW_MODES.SKILLS || mode === VIEW_MODES.VALUES) {
       setSearchQuery('', true);
       window.__lumenUserPanel?.resetFiltersToFullSelection();
       // Change mode (this will trigger animated render with all spikes)
       setViewMode(mode);
       updateCompatibilityLegend(mode);
-      syncContextPanelSections(mode, lastOfferViewModeForPanel);
+      syncContextPanelSections(mode, lastOfferViewModeForPanel, false);
     }
   });
   updateCompatibilityLegend(VIEW_MODES.SKILLS);
@@ -305,9 +335,9 @@ function initializeApp(onboardingData) {
   initOfferViewToggle((mode) => {
     lastOfferViewModeForPanel = mode;
     setOfferViewMode(mode);
-    updateOfferLegendForMode(mode);
+    updateOfferLegendForMode();
     setSkillsValuesToggleDisabled(mode === "sectorization");
-    syncContextPanelSections(getViewMode(), mode);
+    syncContextPanelSections(getViewMode(), mode, isUrgentProfile);
   });
   updateOfferLegendForMode("localization");
 
