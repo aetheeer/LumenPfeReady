@@ -3,7 +3,10 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 
-
+/*
+  Serveur local Lumen + proxy France Travail.
+  Pourquoi un serveur ? Pour garder la clé secrète côté serveur, jamais dans le navigateur.
+*/
 
 dotenv.config();
 

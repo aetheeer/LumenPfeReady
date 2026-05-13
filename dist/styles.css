@@ -383,10 +383,6 @@ body {
   gap: 0.32rem;
 }
 
-.map-side-panel-section.is-panel-section-hidden {
-  display: none !important;
-}
-
 .map-side-panel-filter {
   display: flex;
   align-items: center;
