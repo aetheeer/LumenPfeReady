@@ -308,14 +308,7 @@ function mergeLearnabilityMax(a, b) {
   return LEARN_RANK[a] >= LEARN_RANK[b] ? a : b;
 }
 
-/**
- * Difficulté de formation employable (profil urgence) — défaut par famille du corpus :
- * - **easy** : savoir-être, relationnel, posture (prise en main en semaines avec encadrement).
- * - **medium** : métiers, techniques, tertiaire opérationnel (type CAP / formation courte à moyenne).
- * - **hard** : uniquement via overrides — cursus long sans socle (souvent 9–18 mois+ pour un niveau recrutable).
- *
- * Un même libellé peut apparaître dans deux rubriques : on retient le niveau le plus exigeant des défauts.
- */
+
 const SKILL_CATEGORY_DEFAULT_LEARNABILITY = [
   "easy", // Compétences relationnelles et communication
   "easy", // Organisation, méthode et pilotage

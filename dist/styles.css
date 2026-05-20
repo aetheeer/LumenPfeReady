@@ -182,8 +182,23 @@ body {
   color: rgba(237, 244, 255, 0.94);
   font-size: var(--text-sm);
   line-height: 1.38;
-  min-width: 220px;
-  max-width: 340px;
+  min-width: 300px;
+  max-width: 420px;
+}
+
+.lumen-popup-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.5rem;
+  margin-bottom: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(157, 198, 255, 0.32);
+  background: rgba(157, 198, 255, 0.12);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(206, 226, 255, 0.92);
+  user-select: none;
 }
 
 .lumen-offer-popup-title {
@@ -223,11 +238,42 @@ body {
   padding-right: 0.15rem;
 }
 
-.lumen-offer-popup-link {
+.lumen-offer-popup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+}
+
+.lumen-offer-popup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0.36rem 0.68rem;
+  border-radius: 8px;
+  border: 1px solid rgba(157, 198, 255, 0.52);
+  background: rgba(72, 125, 204, 0.18);
+  color: #eaf3ff;
   font-size: 12px;
-  color: #9dc6ff;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.lumen-offer-popup-btn:hover {
+  background: rgba(102, 155, 234, 0.24);
+  border-color: rgba(157, 198, 255, 0.82);
+}
+
+.lumen-offer-popup-btn:active {
+  transform: translateY(1px);
+}
+
+.lumen-offer-training-btn.is-disabled {
+  opacity: 0.72;
+  cursor: help;
 }
 
 .lumen-offers-status {

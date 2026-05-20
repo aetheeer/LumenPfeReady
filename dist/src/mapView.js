@@ -279,21 +279,22 @@ function toSectorSlug(value) {
     .replace(/^-|-$/g, "");
 }
 
+function extractRomeCodeFromOffer(entry) {
+  const candidates = [
+    entry?.codeRome,
+    entry?.romeCode,
+    entry?.appellation?.codeRome,
+    entry?.metier?.codeRome,
+    entry?.familleRome?.code,
+    entry?.origineOffre?.codeRome
+  ];
+  const fromList = Array.isArray(entry?.romeCodes) ? entry.romeCodes[0] : null;
+  if (fromList) candidates.push(fromList);
+  const found = candidates.find((value) => typeof value === "string" && /^[A-Z]\d{4}$/i.test(value.trim()));
+  return found ? found.trim().toUpperCase() : "";
+}
+
 function inferDominantSectorFromOffer(offer) {
-  const extractRomeCode = (entry) => {
-    const candidates = [
-      entry?.codeRome,
-      entry?.romeCode,
-      entry?.appellation?.codeRome,
-      entry?.metier?.codeRome,
-      entry?.familleRome?.code,
-      entry?.origineOffre?.codeRome
-    ];
-    const fromList = Array.isArray(entry?.romeCodes) ? entry.romeCodes[0] : null;
-    if (fromList) candidates.push(fromList);
-    const found = candidates.find((value) => typeof value === "string" && /^[A-Z]\d{4}$/i.test(value.trim()));
-    return found ? found.trim().toUpperCase() : "";
-  };
   const ROME_SECTOR_BY_PREFIX = {
     A: "Agriculture / environnement",
     B: "Arts / artisanat",
@@ -310,7 +311,7 @@ function inferDominantSectorFromOffer(offer) {
     M: "Support entreprise / gestion",
     N: "Transport / logistique"
   };
-  const romeCode = extractRomeCode(offer);
+  const romeCode = extractRomeCodeFromOffer(offer);
   if (romeCode) {
     const sector = ROME_SECTOR_BY_PREFIX[romeCode[0]];
     if (sector) return sector;
@@ -400,6 +401,59 @@ function ensureTooltip() {
   tooltip.className = "lumen-spike-tooltip";
   tooltip.style.display = "none";
   host.appendChild(tooltip);
+}
+
+function makePopupDraggable(popup, handleSelector = ".lumen-popup-drag-handle") {
+  if (!popup || !map) return;
+  const popupEl = popup.getElement();
+  const host = map.getContainer();
+  if (!popupEl || !host) return;
+  const handle = popupEl.querySelector(handleSelector) || popupEl.querySelector(".maplibregl-popup-content");
+  if (!handle) return;
+  handle.style.cursor = "grab";
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let originLeft = 0;
+  let originTop = 0;
+
+  const placeAsFloatingWindow = () => {
+    const hostRect = host.getBoundingClientRect();
+    const popupRect = popupEl.getBoundingClientRect();
+    popupEl.style.transform = "none";
+    popupEl.style.left = `${popupRect.left - hostRect.left}px`;
+    popupEl.style.top = `${popupRect.top - hostRect.top}px`;
+    popupEl.style.position = "absolute";
+    popupEl.style.zIndex = "240";
+  };
+  requestAnimationFrame(placeAsFloatingWindow);
+
+  const onMove = (event) => {
+    if (!dragging) return;
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    popupEl.style.left = `${originLeft + dx}px`;
+    popupEl.style.top = `${originTop + dy}px`;
+  };
+  const onUp = () => {
+    dragging = false;
+    handle.style.cursor = "grab";
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  const onDown = (event) => {
+    const target = event.target;
+    if (target && (target.closest("a") || target.closest("button"))) return;
+    dragging = true;
+    handle.style.cursor = "grabbing";
+    startX = event.clientX;
+    startY = event.clientY;
+    originLeft = parseFloat(popupEl.style.left || "0");
+    originTop = parseFloat(popupEl.style.top || "0");
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  handle.addEventListener("mousedown", onDown);
 }
 
 function escapeHtml(value) {
@@ -1723,6 +1777,28 @@ function addOfferLayers() {
       offerPopup.remove();
       offerPopup = null;
     }
+    const popupContent = document.createElement("div");
+    popupContent.innerHTML = `
+      <div class="lumen-offer-popup-content">
+        <div class="lumen-popup-drag-handle">Offre</div>
+        <div class="lumen-offer-popup-title">${escapeHtml(p.title || "Offre d'emploi")}</div>
+        <div class="lumen-offer-popup-meta">${escapeHtml(p.company || "Entreprise non renseignée")} · ${escapeHtml(p.city || "")}</div>
+        ${tagsHtml ? `<div class="lumen-offer-popup-tags">${tagsHtml}</div>` : ""}
+        ${rankedBlock}
+        ${description ? `<div class="lumen-offer-popup-desc">${description}</div>` : ""}
+        <div class="lumen-offer-popup-actions">
+          <button
+            type="button"
+            class="lumen-offer-popup-btn lumen-offer-training-btn is-disabled"
+            title="Les formations et passerelles seront disponibles prochainement."
+            aria-label="Bientôt disponible"
+          >
+            Voir les formations
+          </button>
+          ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="lumen-offer-popup-btn lumen-offer-offer-btn">Voir cette offre</a>` : ""}
+        </div>
+      </div>
+    `;
 
     offerPopup = new maplibregl.Popup({
       closeButton: true,
@@ -1732,17 +1808,16 @@ function addOfferLayers() {
       className: "lumen-offer-popup"
     })
       .setLngLat(feature.geometry.coordinates)
-      .setHTML(`
-        <div class="lumen-offer-popup-content">
-          <div class="lumen-offer-popup-title">${escapeHtml(p.title || "Offre d'emploi")}</div>
-          <div class="lumen-offer-popup-meta">${escapeHtml(p.company || "Entreprise non renseignée")} · ${escapeHtml(p.city || "")}</div>
-          ${tagsHtml ? `<div class="lumen-offer-popup-tags">${tagsHtml}</div>` : ""}
-          ${rankedBlock}
-          ${description ? `<div class="lumen-offer-popup-desc">${description}</div>` : ""}
-          ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="lumen-offer-popup-link">Voir cette offre</a>` : ""}
-        </div>
-      `)
+      .setDOMContent(popupContent)
       .addTo(map);
+    makePopupDraggable(offerPopup, ".lumen-popup-drag-handle");
+
+    const trainingButton = popupContent.querySelector(".lumen-offer-training-btn");
+    if (trainingButton) {
+      trainingButton.addEventListener("click", (event) => {
+        event.preventDefault();
+      });
+    }
   });
 }
 
