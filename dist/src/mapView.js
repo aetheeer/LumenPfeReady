@@ -7,6 +7,7 @@ import {
   offerPredominantlyRequiresHardUnmasteredSkills,
   offerHasOnlyAccessibleDisplayedSkills
 } from "./offersInsights.js";
+import { inferJobMutationFromOffer } from "./jobMutation.js";
 import { FR_DEPARTMENTS_GEOJSON } from "./frDepartmentsGeojson.js";
 
 let map;
@@ -502,6 +503,14 @@ function hideTooltip() {
   tooltip.style.display = "none";
 }
 
+function buildMutationTagHtml(properties) {
+  const mutationTrendRaw = String(properties?.jobMutationTrend || "").trim();
+  const mutationTrend = mutationTrendRaw === "up" || mutationTrendRaw === "down" ? mutationTrendRaw : "";
+  const mutationLabel = String(properties?.jobMutationLabel || "").trim();
+  if (!mutationTrend || !mutationLabel) return "";
+  return `<span class="lumen-offer-mutation-tag is-${mutationTrend}">${escapeHtml(mutationLabel)}</span>`;
+}
+
 function showTooltip(event, feature) {
   ensureTooltip();
   if (!tooltip || !feature?.properties) return;
@@ -681,6 +690,8 @@ function buildOfferFeature(offer) {
       .join(" ")
   );
   const score = currentViewMode === VIEW_MODES.SKILLS ? insights.dominantSkillScore : insights.dominantValueScore;
+  const dominantSector = inferDominantSectorFromOffer(offer);
+  const mutation = inferJobMutationFromOffer(offer, dominantSector);
 
   return {
     type: "Feature",
@@ -707,7 +718,9 @@ function buildOfferFeature(offer) {
       overlapKey: `${coordinates[0].toFixed(5)}|${coordinates[1].toFixed(5)}`,
       rankedCorpusSkillsJson: JSON.stringify(
         rankedCorpusSkills.map(({ label, learnability, rawScore }) => ({ label, learnability, rawScore }))
-      )
+      ),
+      jobMutationTrend: mutation?.trend || "",
+      jobMutationLabel: mutation?.label || ""
     }
   };
 }
@@ -1759,7 +1772,7 @@ function addOfferLayers() {
     const tagsHtml = tags.map((tag) =>
       `<span class="lumen-offer-popup-tag">${escapeHtml(tag)}</span>`
     ).join("");
-
+    const mutationHtml = buildMutationTagHtml(p);
     let rankedBlock = "";
     if (urgentProfileActive && typeof p.rankedCorpusSkillsJson === "string") {
       try {
@@ -1782,6 +1795,7 @@ function addOfferLayers() {
       <div class="lumen-offer-popup-content">
         <div class="lumen-popup-drag-handle">Offre</div>
         <div class="lumen-offer-popup-title">${escapeHtml(p.title || "Offre d'emploi")}</div>
+        ${mutationHtml ? `<div class="lumen-offer-popup-mutation">${mutationHtml}</div>` : ""}
         <div class="lumen-offer-popup-meta">${escapeHtml(p.company || "Entreprise non renseignée")} · ${escapeHtml(p.city || "")}</div>
         ${tagsHtml ? `<div class="lumen-offer-popup-tags">${tagsHtml}</div>` : ""}
         ${rankedBlock}

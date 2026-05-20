@@ -61,9 +61,9 @@ function syncContextPanelSections(skillsValuesMode, offerViewMode, urgentProfile
       skillsSection.style.display = "";
     }
     if (valuesSection) {
-      valuesSection.hidden = true;
-      valuesSection.setAttribute("hidden", "");
-      valuesSection.style.display = "none";
+      valuesSection.hidden = false;
+      valuesSection.removeAttribute("hidden");
+      valuesSection.style.display = "";
     }
     return;
   }

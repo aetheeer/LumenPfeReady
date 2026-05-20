@@ -49,7 +49,7 @@ function getStepsForProfile(profileId) {
   }
 
   if (profileId === "urgent") {
-    return [...common];
+    return [...common, { type: STEP_TYPES.VALUES }];
   }
 
   return common;
