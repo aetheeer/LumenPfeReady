@@ -5,3 +5,9 @@ __MACOSX/
 *.zip
 wrangler.toml
 .dev.vars
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
